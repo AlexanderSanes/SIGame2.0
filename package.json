@@ -1,0 +1,20 @@
+{
+  "name": "sigame",
+  "version": "0.1.0",
+  "description": "Браузерная многопользовательская викторина типа SIGame",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test:e2e": "node test/e2e.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}

@@ -1,0 +1,175 @@
+:root {
+  --bg: #12141c;
+  --bg-card: #1c2030;
+  --bg-input: #262b3f;
+  --accent: #4f7cff;
+  --accent-hover: #6a8fff;
+  --danger: #e05252;
+  --text: #e8eaf2;
+  --text-dim: #8b91a7;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+main {
+  width: 100%;
+  max-width: 520px;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+h1 { font-size: 1.6rem; text-align: center; }
+h2 { font-size: 1.15rem; }
+
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px 20px;
+  min-height: 48px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button:hover { background: var(--accent-hover); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.secondary { background: var(--bg-input); }
+button.secondary:hover { background: #313852; }
+button.danger { background: var(--danger); }
+
+input[type='text'] {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  min-height: 48px;
+  width: 100%;
+  outline: none;
+}
+input[type='text']:focus { border-color: var(--accent); }
+
+.muted { color: var(--text-dim); font-size: 0.9rem; }
+.center { text-align: center; }
+.hidden { display: none !important; }
+
+.error-text { color: var(--danger); font-size: 0.9rem; min-height: 1.2em; }
+
+/* Список игроков */
+.player-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.player-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.player-item .nick { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.player-item.offline { opacity: 0.45; }
+.player-item .kick-btn {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.player-item .kick-btn:hover { background: var(--danger); color: #fff; }
+
+.avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Аватар-превью в форме */
+.avatar-preview {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-input);
+  align-self: center;
+}
+.file-label {
+  text-align: center;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px;
+}
+
+/* QR */
+.qr-box { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.qr-box img {
+  width: min(260px, 70vw);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 8px;
+}
+.room-code {
+  font-size: 2.6rem;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  text-align: center;
+  text-indent: 0.35em;
+}
+.join-link {
+  word-break: break-all;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* Тосты */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 20px);
+  background: var(--bg-card);
+  border: 1px solid var(--bg-input);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 100;
+  max-width: 90vw;
+}
+.toast.visible { opacity: 1; transform: translate(-50%, 0); }
+.toast-error { border-color: var(--danger); }

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Игрок — Своя игра</title>
+  <link rel="stylesheet" href="/shared/style.css">
+</head>
+<body>
+  <main>
+    <h1>Комната <span id="room-code"></span></h1>
+
+    <div class="card" id="join-form" hidden>
+      <h2>Присоединиться</h2>
+      <canvas id="avatar-canvas" class="avatar-preview" width="256" height="256"></canvas>
+      <label class="file-label">
+        Выбрать аватарку (необязательно)
+        <input type="file" id="avatar-input" accept="image/jpeg,image/png,image/webp" hidden>
+      </label>
+      <input type="text" id="nick-input" placeholder="Твой ник (2–20 символов)"
+             maxlength="20" autocomplete="off">
+      <button id="join-btn">Войти в игру</button>
+      <div class="error-text" id="error"></div>
+    </div>
+
+    <div id="lobby" hidden>
+      <div class="card">
+        <h2 class="center">Ты в игре, <span id="my-nick"></span>!</h2>
+        <p class="muted center">Ждём начала. Ведущий скоро всё запустит.</p>
+        <button class="secondary" id="leave-btn">Выйти и сменить ник</button>
+      </div>
+      <div class="card">
+        <h2>Игроки <span class="muted" id="players-count"></span></h2>
+        <ul class="player-list" id="player-list"></ul>
+      </div>
+    </div>
+
+    <div class="card" id="gone" hidden>
+      <p class="center" id="gone-text">Комната не найдена</p>
+      <button onclick="location.href='/'">На главную</button>
+    </div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/player/player.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Своя игра — вход</title>
+  <link rel="stylesheet" href="/shared/style.css">
+</head>
+<body>
+  <main>
+    <h1>Своя игра</h1>
+
+    <div class="card">
+      <h2>Я ведущий</h2>
+      <button id="create-btn">Создать комнату</button>
+    </div>
+
+    <div class="card">
+      <h2>Я игрок</h2>
+      <input type="text" id="code-input" placeholder="Код комнаты"
+             maxlength="6" autocomplete="off" autocapitalize="characters">
+      <button id="join-btn" class="secondary">Присоединиться</button>
+      <div class="error-text" id="error"></div>
+    </div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/landing.js"></script>
+</body>
+</html>
