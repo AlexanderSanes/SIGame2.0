@@ -154,9 +154,18 @@ socket.on('game:phase', (p) => {
   S.game.pickerId = p.pickerId;
   S.game.buzz.winnerId = p.winnerId;
   S.game.revealed = p.revealed;
-  if (p.deadlineTs) S.game.deadlineTs = p.deadlineTs;
+  S.game.paused = p.paused;
+  S.game.deadlineTs = p.deadlineTs ?? S.game.deadlineTs;
   if (p.phase === 'board') S.game.question = null;
   render();
+});
+
+socket.on('player:role', ({ role }) => {
+  toast(role === 'spectator' ? 'Ведущий перевёл вас в зрители' : 'Вы снова в игре');
+});
+
+socket.on('settings:updated', (settings) => {
+  S.settings = settings;
 });
 
 socket.on('game:round', (p) => {
@@ -178,12 +187,13 @@ socket.on('question:show', (q) => {
   render();
 });
 
-socket.on('buzz:state', ({ open, deadlineTs, lockedIds }) => {
+socket.on('buzz:state', ({ open, deadlineTs, lockedIds, paused }) => {
   ensureGame();
   S.game.buzz.open = open;
   S.game.buzz.lockedIds = lockedIds;
-  if (deadlineTs) S.game.deadlineTs = deadlineTs;
-  if (open && !lockedIds.includes(myId)) {
+  if (paused !== undefined) S.game.paused = paused;
+  S.game.deadlineTs = deadlineTs ?? S.game.deadlineTs;
+  if (open && !paused && !lockedIds.includes(myId) && !isSpectator()) {
     vibrate(200);
     beep(880);
   }
@@ -281,10 +291,15 @@ function renderGame() {
   renderBuzz();
 }
 
+function isSpectator() {
+  return S.players.find((p) => p.id === myId)?.role === 'spectator';
+}
+
 function renderScores() {
   const strip = $('score-strip');
   strip.replaceChildren();
   for (const p of S.players) {
+    if (p.role === 'spectator') continue;
     strip.append(
       h('span', { class: `score-chip${S.game?.buzz.winnerId === p.id ? ' winner' : ''}` },
         avatarEl(p, 28),
@@ -304,11 +319,13 @@ function renderBoard() {
   }
   boardCard.hidden = false;
   $('board-round').textContent = g.roundTitle || '';
-  const iPick = S.settings?.picker === 'player' && g.pickerId === myId;
+  const iPick = S.settings?.picker === 'player' && g.pickerId === myId && !isSpectator();
   const picker = S.players.find((p) => p.id === g.pickerId);
-  $('board-hint').textContent = iPick
-    ? 'Ты выбираешь вопрос'
-    : `Выбирает: ${picker?.nick || 'ведущий'}`;
+  $('board-hint').textContent = isSpectator()
+    ? 'Вы зритель — смотрите игру'
+    : iPick
+      ? 'Ты выбираешь вопрос'
+      : `Выбирает: ${picker?.nick || 'ведущий'}`;
 
   const grid = $('board-grid');
   grid.replaceChildren();
@@ -355,9 +372,12 @@ function renderStatus() {
     answer: winner ? (winner.id === myId ? 'Ты отвечаешь!' : `Отвечает: ${winner.nick}`) : '',
     reveal: 'Вопрос закрыт',
   };
-  $('status-text').textContent = texts[S.phase] || '';
+  $('status-text').textContent = g.paused ? 'Пауза' : texts[S.phase] || '';
 
-  if (g.deadlineTs && ['buzz', 'answer'].includes(S.phase)) {
+  if (g.paused) {
+    stopCountdown();
+    $('countdown').textContent = '⏸';
+  } else if (g.deadlineTs && ['buzz', 'answer'].includes(S.phase)) {
     startCountdown(g.deadlineTs);
   } else {
     stopCountdown();
@@ -367,10 +387,14 @@ function renderStatus() {
 
 function renderBuzz() {
   const g = S.game;
-  const canBuzz = S.phase === 'buzz'
-    && g?.buzz.open
+  if (!g) return;
+  const meLocked = g.buzz.lockedIds.includes(myId);
+  // во время чтения вопроса кнопка видна только если включён режим фальстарта
+  const armedEarly = S.phase === 'question' && S.settings?.falseStart;
+  const canBuzz = !isSpectator()
     && !g.buzz.winnerId
-    && !g.buzz.lockedIds.includes(myId);
+    && !meLocked
+    && ((S.phase === 'buzz' && g.buzz.open && !g.paused) || armedEarly);
   buzzOverlay.hidden = !canBuzz;
   buzzBtn.disabled = !canBuzz;
 }

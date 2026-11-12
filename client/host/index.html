@@ -46,6 +46,9 @@
           <label>Показывать вопрос игрокам
             <input type="checkbox" id="set-show-question">
           </label>
+          <label>Фальстарт (блок за раннее нажатие)
+            <input type="checkbox" id="set-false-start">
+          </label>
         </div>
         <button class="secondary" id="save-settings">Сохранить настройки</button>
       </div>
@@ -60,25 +63,50 @@
       <div id="game-panel" hidden>
         <div class="score-strip" id="score-strip"></div>
 
-        <div class="card" id="board-card" hidden>
-          <h2 id="board-round"></h2>
-          <p class="muted center" id="board-hint"></p>
-          <div class="board-table" id="board-grid"></div>
-        </div>
+        <div class="host-grid">
+          <div class="host-main">
+            <div class="card" id="board-card" hidden>
+              <h2 id="board-round"></h2>
+              <p class="muted center" id="board-hint"></p>
+              <div class="board-table" id="board-grid"></div>
+            </div>
 
-        <div class="card" id="question-card" hidden>
-          <div class="question-price" id="q-price"></div>
-          <div class="question-text" id="q-text"></div>
-          <div class="answer-text" id="q-answer"></div>
-          <p class="center" id="status-text"></p>
-          <div class="countdown" id="countdown"></div>
-          <button id="buzz-open-btn" hidden>Разрешить ответы</button>
-          <div id="verdict-btns" hidden>
-            <button id="correct-btn" style="background:#3fb950">Верно</button>
-            <button id="wrong-btn" class="danger">Неверно</button>
+            <div class="card" id="question-card" hidden>
+              <div class="question-price" id="q-price"></div>
+              <div class="question-text" id="q-text"></div>
+              <div class="answer-text" id="q-answer"></div>
+              <p class="center" id="status-text"></p>
+              <div class="countdown" id="countdown"></div>
+            </div>
           </div>
-          <button id="reveal-btn" class="secondary" hidden>Показать ответ</button>
-          <button id="close-question-btn" hidden>К полю</button>
+
+          <div class="host-side">
+            <div class="card" id="controls-card">
+              <h2>Управление</h2>
+              <div class="controls-grid">
+                <button id="buzz-open-btn" hidden>Разрешить ответы</button>
+                <button id="correct-btn" class="success" hidden>Верно</button>
+                <button id="wrong-btn" class="danger" hidden>Неверно</button>
+                <button id="reveal-btn" class="secondary" hidden>Показать ответ</button>
+                <button id="close-question-btn" class="secondary" hidden>К полю</button>
+                <button id="skip-btn" class="secondary" hidden>Пропустить вопрос</button>
+                <button id="pause-btn" class="secondary" hidden>Пауза</button>
+                <button id="undo-btn" class="secondary">Отменить начисление</button>
+                <button id="round-end-btn" class="secondary">Завершить раунд</button>
+                <button id="game-end-btn" class="danger">Завершить игру</button>
+              </div>
+            </div>
+
+            <div class="card" id="players-ctrl-card">
+              <h2>Игроки</h2>
+              <ul class="player-ctrl-list" id="players-ctrl"></ul>
+            </div>
+
+            <div class="card" id="log-card">
+              <h2>Журнал</h2>
+              <ul class="log-list" id="log-list"></ul>
+            </div>
+          </div>
         </div>
       </div>
 

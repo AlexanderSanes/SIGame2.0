@@ -40,7 +40,10 @@ export function registerGameHandlers(io, socket, rooms) {
     if (payload.answerTimeSec !== undefined) s.answerTimeSec = clampInt(payload.answerTimeSec, 3, 30, s.answerTimeSec);
     if (payload.buzzTimeoutSec !== undefined) s.buzzTimeoutSec = clampInt(payload.buzzTimeoutSec, 5, 60, s.buzzTimeoutSec);
     if (payload.showQuestionToPlayers !== undefined) s.showQuestionToPlayers = Boolean(payload.showQuestionToPlayers);
+    if (payload.falseStart !== undefined) s.falseStart = Boolean(payload.falseStart);
     rooms.touch(room);
+    io.to(room.id).emit('settings:updated', s);
+    game.logAction(io, rooms, room, 'Настройки комнаты обновлены');
     done({ ok: true, settings: s });
   });
 
@@ -53,7 +56,7 @@ export function registerGameHandlers(io, socket, rooms) {
       const isPickerPlayer = isPlayer() && socket.data.playerId === room.game.pickerId;
       const allowed = isHost() || (room.settings.picker === 'player' && isPickerPlayer);
       if (!allowed) return done({ ok: false, error: 'Сейчас выбирает другой игрок' });
-      game.selectCell(io, rooms, room, payload?.themeIdx, payload?.qIdx);
+      game.selectCell(io, rooms, room, payload?.themeIdx, payload?.qIdx, isHost());
       done({ ok: true });
     } catch (e) {
       done({ ok: false, error: e.message });
@@ -79,8 +82,8 @@ export function registerGameHandlers(io, socket, rooms) {
     if (!isPlayer()) return done({ ok: false, error: 'Только игроки жмут кнопку' });
     const room = roomOf();
     if (!room) return done({ ok: false, error: 'Комната не найдена' });
-    const { accepted } = game.pressBuzz(io, rooms, room, socket.data.playerId);
-    done({ ok: true, accepted });
+    const { accepted, falseStart } = game.pressBuzz(io, rooms, room, socket.data.playerId);
+    done({ ok: true, accepted, falseStart: Boolean(falseStart) });
   });
 
   socket.on('answer:judge', (payload, ack) => {
@@ -116,6 +119,103 @@ export function registerGameHandlers(io, socket, rooms) {
       const room = roomOf();
       if (!room) return done({ ok: false, error: 'Комната не найдена' });
       game.closeQuestion(io, rooms, room);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- пульт ведущего ----------
+
+  // score:adjust { playerId, delta } — ручная корректировка (в т.ч. ±цена вопроса)
+  socket.on('score:adjust', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      const delta = Number.parseInt(payload?.delta, 10);
+      if (!Number.isFinite(delta) || delta === 0) return done({ ok: false, error: 'Сумма должна быть ненулевым числом' });
+      if (Math.abs(delta) > 100000) return done({ ok: false, error: 'Слишком большая сумма' });
+      game.adjustScore(io, rooms, room, payload?.playerId, delta);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('score:undo', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.undo(io, rooms, room);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('game:setPicker', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.setPicker(io, rooms, room, payload?.playerId);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('question:skip', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.skipQuestion(io, rooms, room);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('game:pause', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.togglePause(io, rooms, room);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('round:end', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.endRound(io, rooms, room);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('game:end', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.endGame(io, rooms, room);
       done({ ok: true });
     } catch (e) {
       done({ ok: false, error: e.message });

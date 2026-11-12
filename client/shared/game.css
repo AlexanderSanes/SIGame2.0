@@ -107,6 +107,71 @@ button.cell:not(:disabled):hover { background: #313852; }
 }
 .settings-grid input[type='checkbox'] { width: 22px; height: 22px; }
 
+/* Пульт ведущего: поле слева, управление справа */
+.host-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+@media (min-width: 960px) {
+  .host-grid { grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); align-items: start; }
+}
+.host-side { display: flex; flex-direction: column; gap: 16px; }
+.controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.controls-grid button { padding: 10px 8px; font-size: 0.95rem; }
+button.success { background: #3fb950; }
+button.success:hover { background: #46c95c; }
+
+/* Список игроков с управлением счётом */
+.player-ctrl-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.player-ctrl { background: var(--bg-input); border-radius: var(--radius); padding: 10px 12px; }
+.player-ctrl.offline { opacity: 0.55; }
+.player-ctrl .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.player-ctrl .row + .row { margin-top: 8px; }
+.player-ctrl .nick { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.player-ctrl .score { margin-left: auto; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.player-ctrl .score.negative { color: var(--danger); }
+.player-ctrl .badge {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0b0e1a;
+  font-weight: 700;
+}
+.player-ctrl .badge.spectator { background: var(--muted, #8b93ad); }
+.player-ctrl button.mini {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  width: auto;
+}
+.player-ctrl input.adj-input {
+  width: 74px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+/* Журнал действий */
+.log-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+.log-list li { color: var(--text); }
+.log-list li time { color: var(--accent); margin-right: 8px; font-variant-numeric: tabular-nums; }
+
 /* Табло (/room/:id/screen) — крупно, для проектора */
 .board-screen main { max-width: 1100px; }
 .board-screen .cell { min-width: 110px; min-height: 70px; font-size: 1.8rem; }

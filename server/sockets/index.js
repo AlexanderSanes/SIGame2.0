@@ -31,10 +31,12 @@ export function initSockets(io, rooms) {
           player.connected = true;
           player.socketId = socket.id;
           socket.join(room.id);
+          if (player.role === 'spectator') socket.join(`${room.id}:full`);
           socket.data = { role: 'player', roomId: room.id, playerId: player.id };
           rooms.touch(room);
           broadcastLobby(io, rooms, room);
-          return reply({ ok: true, role: 'player', state: rooms.buildState(room, 'player') });
+          const view = player.role === 'spectator' ? 'board' : 'player';
+          return reply({ ok: true, role: player.role || 'player', state: rooms.buildState(room, view) });
         }
 
         reply({ ok: false, error: 'Нужен hostToken или playerId + sessionToken' });

@@ -19,8 +19,12 @@ const DEFAULT_SETTINGS = {
   picker: 'player',            // 'player' — выбирает игрок с правом выбора, 'host' — только ведущий
   answerTimeSec: 7,            // таймер на ответ после нажатия
   buzzTimeoutSec: 15,          // сколько кнопка открыта, потом вопрос сгорает
-  showQuestionToPlayers: false // показывать ли текст вопроса на телефонах игроков
+  showQuestionToPlayers: false, // показывать ли текст вопроса на телефонах игроков
+  falseStart: false            // нажатие до «Разрешить ответы» блокирует игрока на вопрос
 };
+
+const HISTORY_LIMIT = 10;      // глубина undo
+const LOG_LIMIT = 100;         // журнал действий ведущего
 
 export class RoomManager {
   constructor() {
@@ -53,6 +57,8 @@ export class RoomManager {
       settings: { ...DEFAULT_SETTINGS },
       players: new Map(),
       game: null,
+      history: [],
+      log: [],
       _timers: {},
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -73,6 +79,7 @@ export class RoomManager {
       nick,
       avatarUrl: avatarUrl || null,
       score: 0,
+      role: 'player', // 'player' | 'spectator'
       connected: true,
       socketId: null,
       joinedAt: Date.now(),
@@ -113,8 +120,22 @@ export class RoomManager {
       nick: p.nick,
       avatarUrl: p.avatarUrl,
       score: p.score,
+      role: p.role || 'player',
       connected: p.connected,
     }));
+  }
+
+  pushHistory(room, entry) {
+    room.history.push(entry);
+    if (room.history.length > HISTORY_LIMIT) room.history.shift();
+  }
+
+  addLog(room, text) {
+    const entry = { ts: Date.now(), text };
+    room.log.push(entry);
+    if (room.log.length > LOG_LIMIT) room.log.shift();
+    this.touch(room);
+    return entry;
   }
 
   // view: 'host' (всё + ответ), 'board' (текст вопроса, без ответа), 'player' (зависит от настройки)
@@ -125,6 +146,8 @@ export class RoomManager {
       settings: room.settings,
       players: this.publicPlayers(room),
       game: room.game ? this.publicGame(room, view) : null,
+      log: room.log.slice(-50),
+      canUndo: room.history.length > 0,
     };
   }
 
@@ -137,6 +160,7 @@ export class RoomManager {
       roundTitle: round?.title ?? null,
       pickerId: g.pickerId,
       revealed: g.revealed,
+      paused: Boolean(g.paused),
       deadlineTs: g.deadlineTs,
       buzz: {
         open: g.buzz.open,
@@ -198,8 +222,11 @@ export class RoomManager {
         nick: p.nick,
         avatarUrl: p.avatarUrl,
         score: p.score,
+        role: p.role || 'player',
         joinedAt: p.joinedAt,
       })),
+      history: room.history,
+      log: room.log.slice(-50),
       game: room.game && {
         roundIndex: room.game.roundIndex,
         pickerId: room.game.pickerId,
@@ -221,12 +248,14 @@ export class RoomManager {
       settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
       players: new Map(),
       game: null,
+      history: Array.isArray(data.history) ? data.history : [],
+      log: Array.isArray(data.log) ? data.log : [],
       _timers: {},
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     };
     for (const p of data.players) {
-      room.players.set(p.id, { ...p, connected: false, socketId: null });
+      room.players.set(p.id, { role: 'player', ...p, connected: false, socketId: null });
     }
     if (data.game) {
       room.game = {
@@ -235,6 +264,7 @@ export class RoomManager {
         used: data.game.used,
         question: data.game.question,
         revealed: data.game.revealed,
+        paused: false,
         deadlineTs: null,
         buzz: { open: false, winnerId: null, lockedIds: new Set(data.game.lockedIds || []) },
       };

@@ -45,6 +45,7 @@ socket.on('game:phase', (p) => {
   S.game.pickerId = p.pickerId;
   S.game.buzz.winnerId = p.winnerId;
   S.game.revealed = p.revealed;
+  S.game.paused = p.paused;
   render();
 });
 socket.on('game:round', (p) => { ensureGame(); Object.assign(S.game, p); });
@@ -99,6 +100,7 @@ function renderScores() {
   const strip = $('score-strip');
   strip.replaceChildren();
   for (const p of S.players) {
+    if (p.role === 'spectator') continue;
     strip.append(
       h('span', { class: `score-chip${S.game?.buzz.winnerId === p.id ? ' winner' : ''}` },
         avatarEl(p, 40),
@@ -143,7 +145,7 @@ function renderQuestion() {
     answer: winner ? `Отвечает: ${winner.nick}` : '',
     reveal: '',
   };
-  $('status-text').textContent = texts[S.phase] || '';
+  $('status-text').textContent = g.paused ? 'Пауза' : texts[S.phase] || '';
 }
 
 function renderStandings() {
