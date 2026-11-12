@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { saveSnapshot, deleteSnapshot, loadSnapshots } from './db.js';
+import { TEST_PACK } from './testpack.js';
 
 // Без похожих символов: 0, O, 1, I, L исключены
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -13,6 +14,13 @@ function generateCode(length) {
   }
   return code;
 }
+
+const DEFAULT_SETTINGS = {
+  picker: 'player',            // 'player' — выбирает игрок с правом выбора, 'host' — только ведущий
+  answerTimeSec: 7,            // таймер на ответ после нажатия
+  buzzTimeoutSec: 15,          // сколько кнопка открыта, потом вопрос сгорает
+  showQuestionToPlayers: false // показывать ли текст вопроса на телефонах игроков
+};
 
 export class RoomManager {
   constructor() {
@@ -40,8 +48,12 @@ export class RoomManager {
     const room = {
       id,
       hostToken: crypto.randomUUID(),
+      hostSocketId: null,
       phase: 'lobby',
+      settings: { ...DEFAULT_SETTINGS },
       players: new Map(),
+      game: null,
+      _timers: {},
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -60,6 +72,7 @@ export class RoomManager {
       sessionToken: crypto.randomUUID(),
       nick,
       avatarUrl: avatarUrl || null,
+      score: 0,
       connected: true,
       socketId: null,
       joinedAt: Date.now(),
@@ -99,16 +112,60 @@ export class RoomManager {
       id: p.id,
       nick: p.nick,
       avatarUrl: p.avatarUrl,
+      score: p.score,
       connected: p.connected,
     }));
   }
 
-  buildState(room) {
+  // view: 'host' (всё + ответ), 'board' (текст вопроса, без ответа), 'player' (зависит от настройки)
+  buildState(room, view = 'player') {
     return {
       roomId: room.id,
       phase: room.phase,
+      settings: room.settings,
       players: this.publicPlayers(room),
+      game: room.game ? this.publicGame(room, view) : null,
     };
+  }
+
+  publicGame(room, view) {
+    const g = room.game;
+    const round = TEST_PACK.rounds[g.roundIndex]; // undefined после game_over
+    const state = {
+      roundIndex: g.roundIndex,
+      roundsTotal: TEST_PACK.rounds.length,
+      roundTitle: round?.title ?? null,
+      pickerId: g.pickerId,
+      revealed: g.revealed,
+      deadlineTs: g.deadlineTs,
+      buzz: {
+        open: g.buzz.open,
+        winnerId: g.buzz.winnerId,
+        lockedIds: [...g.buzz.lockedIds],
+      },
+      board: round ? {
+        themes: round.themes.map((theme, t) => ({
+          title: theme.title,
+          questions: theme.questions.map((q, qi) => ({
+            price: q.price,
+            used: g.used[g.roundIndex][t][qi],
+          })),
+        })),
+      } : null,
+      question: null,
+    };
+    if (g.question) {
+      const base = { themeIdx: g.question.themeIdx, qIdx: g.question.qIdx, price: g.question.price };
+      const withText = { ...base, themeTitle: g.question.themeTitle, text: g.question.text };
+      if (view === 'host') {
+        state.question = { ...withText, answer: g.question.answer };
+      } else if (view === 'board' || room.settings.showQuestionToPlayers) {
+        state.question = withText;
+      } else {
+        state.question = base;
+      }
+    }
+    return state;
   }
 
   touch(room) {
@@ -132,6 +189,7 @@ export class RoomManager {
       id: room.id,
       hostToken: room.hostToken,
       phase: room.phase,
+      settings: room.settings,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
       players: [...room.players.values()].map((p) => ({
@@ -139,8 +197,17 @@ export class RoomManager {
         sessionToken: p.sessionToken,
         nick: p.nick,
         avatarUrl: p.avatarUrl,
+        score: p.score,
         joinedAt: p.joinedAt,
       })),
+      game: room.game && {
+        roundIndex: room.game.roundIndex,
+        pickerId: room.game.pickerId,
+        used: room.game.used,
+        question: room.game.question,
+        revealed: room.game.revealed,
+        lockedIds: [...room.game.buzz.lockedIds],
+      },
     };
   }
 
@@ -148,13 +215,29 @@ export class RoomManager {
     const room = {
       id: data.id,
       hostToken: data.hostToken,
-      phase: data.phase,
+      hostSocketId: null,
+      // после рестарта сервера транзиентные фазы откатываем к показу вопроса
+      phase: ['buzz', 'answer'].includes(data.phase) ? 'question' : data.phase,
+      settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
+      players: new Map(),
+      game: null,
+      _timers: {},
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
-      players: new Map(),
     };
     for (const p of data.players) {
       room.players.set(p.id, { ...p, connected: false, socketId: null });
+    }
+    if (data.game) {
+      room.game = {
+        roundIndex: data.game.roundIndex,
+        pickerId: data.game.pickerId,
+        used: data.game.used,
+        question: data.game.question,
+        revealed: data.game.revealed,
+        deadlineTs: null,
+        buzz: { open: false, winnerId: null, lockedIds: new Set(data.game.lockedIds || []) },
+      };
     }
     return room;
   }

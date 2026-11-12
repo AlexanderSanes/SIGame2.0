@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Игрок — Своя игра</title>
   <link rel="stylesheet" href="/shared/style.css">
+  <link rel="stylesheet" href="/shared/game.css">
 </head>
 <body>
   <main>
@@ -35,11 +36,40 @@
       </div>
     </div>
 
+    <div id="game" hidden>
+      <div class="score-strip" id="score-strip"></div>
+
+      <div class="card" id="board-card" hidden>
+        <h2 id="board-round"></h2>
+        <p class="muted center" id="board-hint"></p>
+        <div class="board-table" id="board-grid"></div>
+      </div>
+
+      <div class="card" id="status-card" hidden>
+        <div class="question-price" id="q-price"></div>
+        <div class="question-text" id="q-text"></div>
+        <div class="answer-text" id="q-answer"></div>
+        <p class="center" id="status-text"></p>
+        <div class="countdown" id="countdown"></div>
+      </div>
+    </div>
+
+    <div id="over" hidden>
+      <div class="card">
+        <h2 class="center">Игра окончена!</h2>
+        <div id="standings"></div>
+      </div>
+    </div>
+
     <div class="card" id="gone" hidden>
       <p class="center" id="gone-text">Комната не найдена</p>
       <button onclick="location.href='/'">На главную</button>
     </div>
   </main>
+
+  <div id="buzz-overlay" hidden>
+    <button id="buzz-btn">ОТВЕТИТЬ</button>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="/player/player.js"></script>

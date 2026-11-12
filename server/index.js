@@ -1,3 +1,4 @@
+import path from 'node:path';
 import express from 'express';
 import http from 'node:http';
 import { Server } from 'socket.io';
@@ -19,6 +20,10 @@ rooms.restore();
 app.use(express.json());
 app.use(createRoomsRouter(rooms));
 app.use('/avatars', express.static(config.avatarsDir));
+// Табло: /room/ABCDE/screen
+app.get('/room/:id/screen', (req, res) => {
+  res.sendFile(path.join(config.clientDir, 'board', 'index.html'));
+});
 app.use(express.static(config.clientDir));
 
 initSockets(io, rooms);

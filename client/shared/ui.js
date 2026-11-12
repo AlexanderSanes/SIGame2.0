@@ -34,3 +34,25 @@ export function avatarEl(player, size = 44) {
   const initial = (player.nick || '?').trim().charAt(0).toUpperCase();
   return h('span', { class: 'avatar avatar-placeholder', style: `width:${size}px;height:${size}px;font-size:${size / 2}px` }, initial);
 }
+
+// Короткий сигнал без аудиофайлов (WebAudio)
+let audioCtx = null;
+export function beep(freq = 880, durationMs = 180) {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + durationMs / 1000);
+    osc.start(t);
+    osc.stop(t + durationMs / 1000);
+  } catch { /* звук не критичен */ }
+}
+
+export function vibrate(pattern = 200) {
+  try { navigator.vibrate?.(pattern); } catch { /* не везде поддерживается */ }
+}

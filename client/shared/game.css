@@ -1,0 +1,115 @@
+/* Игровое поле */
+.board-table { display: flex; flex-direction: column; gap: 8px; }
+.board-row { display: flex; align-items: stretch; gap: 8px; }
+.board-theme {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-width: 0;
+  overflow: hidden;
+}
+.board-cells { display: flex; gap: 8px; }
+.cell {
+  min-width: 64px;
+  min-height: 48px;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+button.cell { background: var(--bg-input); }
+button.cell:not(:disabled):hover { background: #313852; }
+.cell.used { opacity: 0.25; text-decoration: line-through; }
+.cell.pickable { outline: 2px solid var(--accent); }
+
+/* Счёт */
+.score-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.score-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-input);
+  border-radius: 999px;
+  padding: 4px 12px 4px 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.score-chip.winner { outline: 2px solid gold; }
+.score-chip .points { color: var(--accent); font-variant-numeric: tabular-nums; }
+.score-chip .points.negative { color: var(--danger); }
+
+/* Вопрос */
+.question-text { font-size: 1.3rem; line-height: 1.4; text-align: center; }
+.question-price { font-size: 2rem; font-weight: 800; color: var(--accent); text-align: center; }
+.answer-text { font-size: 1.2rem; color: #7ee787; text-align: center; font-weight: 600; }
+.countdown { font-size: 2.4rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Большая кнопка */
+#buzz-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+#buzz-btn {
+  width: 100%;
+  max-width: 480px;
+  height: 60dvh;
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  border-radius: 24px;
+  background: var(--danger);
+  animation: buzz-pulse 0.9s infinite;
+}
+#buzz-btn:active { transform: scale(0.97); }
+@keyframes buzz-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 82, 82, 0.55); }
+  50% { box-shadow: 0 0 0 22px rgba(224, 82, 82, 0); }
+}
+
+/* Итоги */
+.standing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 1.05rem;
+}
+.standing-row .place { font-weight: 800; min-width: 2em; color: var(--accent); }
+.standing-row .points { margin-left: auto; font-weight: 700; }
+.standing-row.first { outline: 2px solid gold; }
+
+/* Настройки ведущего */
+.settings-grid { display: flex; flex-direction: column; gap: 10px; }
+.settings-grid label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.95rem; }
+.settings-grid select, .settings-grid input[type='number'] {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-input);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  max-width: 140px;
+}
+.settings-grid input[type='checkbox'] { width: 22px; height: 22px; }
+
+/* Табло (/room/:id/screen) — крупно, для проектора */
+.board-screen main { max-width: 1100px; }
+.board-screen .cell { min-width: 110px; min-height: 70px; font-size: 1.8rem; }
+.board-screen .board-theme { font-size: 1.4rem; }
+.board-screen .question-text { font-size: 2.2rem; }
+.board-screen .score-chip { font-size: 1.3rem; padding: 8px 18px 8px 8px; }
