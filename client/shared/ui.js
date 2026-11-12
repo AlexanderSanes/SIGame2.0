@@ -11,8 +11,7 @@ export function h(tag, attrs = {}, ...children) {
   return el;
 }
 
-export function toast(message, type = 'info') {
-  const el = h('div', { class: `toast toast-${type}` }, message);
+export function toast(message, type = 'info') {  const el = h('div', { class: `toast toast-${type}` }, message);
   document.body.append(el);
   setTimeout(() => el.classList.add('visible'), 10);
   setTimeout(() => {
@@ -33,6 +32,26 @@ export function avatarEl(player, size = 44) {
   }
   const initial = (player.nick || '?').trim().charAt(0).toUpperCase();
   return h('span', { class: 'avatar avatar-placeholder', style: `width:${size}px;height:${size}px;font-size:${size / 2}px` }, initial);
+}
+
+// Копирование в буфер: navigator.clipboard работает только в secure context
+// (https/localhost), поэтому для http://<LAN-IP> нужен fallback через textarea
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* не secure context или нет разрешения — пробуем по-старому */ }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.append(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { /* совсем старый браузер */ }
+  ta.remove();
+  return ok;
 }
 
 // Короткий сигнал без аудиофайлов (WebAudio)

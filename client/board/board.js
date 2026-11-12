@@ -50,7 +50,14 @@ socket.on('game:phase', (p) => {
 });
 socket.on('game:round', (p) => { ensureGame(); Object.assign(S.game, p); });
 socket.on('board:update', (board) => { ensureGame(); S.game.board = board; render(); });
-socket.on('question:show', (q) => { ensureGame(); S.game.question = { ...S.game.question, ...q }; render(); });
+socket.on('question:show', (q) => {
+  ensureGame();
+  // новый вопрос — кнопка сброшена, никаких остатков от прошлого вопроса
+  S.game.buzz = { open: false, winnerId: null, lockedIds: [] };
+  S.game.paused = false;
+  S.game.question = { ...S.game.question, ...q };
+  render();
+});
 socket.on('buzz:state', ({ open, lockedIds }) => {
   ensureGame();
   S.game.buzz.open = open;

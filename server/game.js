@@ -135,6 +135,7 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   rooms.touch(room);
 
   emitQuestion(io, room);
+  emitBuzzState(io, room); // у всех клиентов кнопка гарантированно сброшена
   emitPhase(io, room);
   if (byHost) logAction(io, rooms, room, `Вопрос выбран ведущим: ${theme.title}, ${q.price}`);
 }

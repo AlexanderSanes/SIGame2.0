@@ -1,5 +1,5 @@
 import { socket, call, onReconnect } from '/shared/socket.js';
-import { h, toast, avatarEl } from '/shared/ui.js';
+import { h, toast, avatarEl, copyText } from '/shared/ui.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
 const hostToken = roomId && localStorage.getItem(`sigame:host:${roomId}`);
@@ -57,12 +57,8 @@ async function renderHeader() {
     toast('Не удалось сгенерировать QR-код', 'error');
   }
   $('copy-link').onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(joinUrl);
-      toast('Ссылка скопирована');
-    } catch {
-      toast('Не удалось скопировать — скопируйте вручную', 'error');
-    }
+    const ok = await copyText(joinUrl);
+    toast(ok ? 'Ссылка скопирована' : 'Не удалось скопировать — скопируйте вручную', ok ? 'info' : 'error');
   };
   $('open-screen').onclick = () => window.open(`/room/${roomId}/screen`, '_blank');
 }
@@ -173,6 +169,9 @@ socket.on('board:update', (board) => {
 
 socket.on('question:show', (q) => {
   ensureGame();
+  // новый вопрос — кнопка сброшена, никаких остатков от прошлого вопроса
+  S.game.buzz = { open: false, winnerId: null, lockedIds: [] };
+  S.game.paused = false;
   S.game.question = { ...S.game.question, ...q };
   render();
 });

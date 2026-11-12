@@ -183,6 +183,9 @@ socket.on('board:update', (board) => {
 
 socket.on('question:show', (q) => {
   ensureGame();
+  // новый вопрос — кнопка сброшена, никаких остатков от прошлого вопроса
+  S.game.buzz = { open: false, winnerId: null, lockedIds: [] };
+  S.game.paused = false;
   S.game.question = { ...S.game.question, ...q };
   render();
 });
@@ -243,6 +246,10 @@ socket.on('room:kicked', ({ reason }) => {
 buzzBtn.addEventListener('click', () => {
   buzzBtn.disabled = true;
   socket.emit('buzz:press', {}, (res) => {
+    if (res?.falseStart) {
+      toast('Фальстарт! Ты пропускаешь этот вопрос', 'error');
+      vibrate([80, 60, 80]);
+    }
     if (!res?.accepted) buzzBtn.disabled = false;
   });
 });
@@ -397,6 +404,9 @@ function renderBuzz() {
     && ((S.phase === 'buzz' && g.buzz.open && !g.paused) || armedEarly);
   buzzOverlay.hidden = !canBuzz;
   buzzBtn.disabled = !canBuzz;
+  // «взведённая» кнопка до сигнала ведущего выглядит иначе — жать ещё рано
+  buzzBtn.classList.toggle('armed', canBuzz && armedEarly);
+  buzzBtn.textContent = canBuzz && armedEarly ? 'Жди сигнала…' : 'ОТВЕТИТЬ';
 }
 
 function hideBuzz() {
