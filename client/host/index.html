@@ -28,6 +28,16 @@
         </div>
       </div>
 
+      <div class="card" id="media-card">
+        <h2>Медиафайлы</h2>
+        <p class="muted">Картинки до 5 МБ, аудио до 10 МБ, видео до 100 МБ. Ссылку вставляйте в пакет вопросов.</p>
+        <input type="file" id="upload-input" accept="image/*,audio/*,video/*">
+        <div class="upload-progress" id="upload-progress" hidden>
+          <div class="upload-progress-bar" id="upload-progress-bar"></div>
+        </div>
+        <ul class="media-list" id="media-list"></ul>
+      </div>
+
       <div class="card" id="settings-card">
         <h2>Настройки</h2>
         <div class="settings-grid">
@@ -74,7 +84,9 @@
             <div class="card" id="question-card" hidden>
               <div class="question-price" id="q-price"></div>
               <div class="question-text" id="q-text"></div>
+              <div class="q-media" id="q-media"></div>
               <div class="answer-text" id="q-answer"></div>
+              <div class="q-media" id="q-answer-media"></div>
               <p class="center" id="status-text"></p>
               <div class="countdown" id="countdown"></div>
             </div>

@@ -1,11 +1,15 @@
 import { socket, call } from '/shared/socket.js';
 import { h, avatarEl } from '/shared/ui.js';
+import { renderMedia, applyMediaControl, preloadMedia } from '/shared/media.js';
 
 const roomId = location.pathname.match(/\/room\/([A-Z2-9]+)\/screen/i)?.[1]?.toUpperCase();
 
 const $ = (id) => document.getElementById(id);
 
 const S = { phase: null, players: [], game: null, standings: null };
+let lastMediaKey = null;
+let lastAnswerRendered = false;
+let currentPlayers = []; // отрендеренные аудио/видео текущего вопроса (для media:control)
 
 socket.on('connect', watch);
 onReconnectSafe();
@@ -72,10 +76,15 @@ socket.on('score:update', ({ scores }) => {
   }
   renderScores();
 });
-socket.on('answer:reveal', ({ answer }) => {
-  if (S.game?.question) S.game.question.answer = answer;
+socket.on('answer:reveal', ({ answer, answerMedia }) => {
+  if (S.game?.question) {
+    S.game.question.answer = answer;
+    S.game.question.answerMedia = answerMedia || [];
+  }
   render();
 });
+socket.on('media:control', ({ action }) => applyMediaControl(currentPlayers, action));
+socket.on('round:media', ({ urls }) => preloadMedia(urls));
 socket.on('game:over', ({ standings }) => {
   S.phase = 'game_over';
   S.standings = standings;
@@ -86,6 +95,7 @@ function applyState(state) {
   S.phase = state.phase;
   S.players = state.players;
   S.game = state.game;
+  preloadMedia(state.roundMedia);
   render();
 }
 
@@ -144,6 +154,19 @@ function renderQuestion() {
   $('q-price').textContent = `${g.question.themeTitle || ''} · ${g.question.price}`;
   $('q-text').textContent = g.question.text || '';
   $('q-answer').textContent = g.revealed && g.question.answer ? `Ответ: ${g.question.answer}` : '';
+
+  // медиа рендерим один раз на вопрос, чтобы не дёргать воспроизведение
+  const mediaKey = `${g.question.themeIdx}:${g.question.qIdx}:${g.roundIndex}`;
+  if (mediaKey !== lastMediaKey) {
+    lastMediaKey = mediaKey;
+    lastAnswerRendered = false;
+    currentPlayers = renderMedia($('q-media'), g.question.media, { interactive: false });
+    $('q-answer-media').replaceChildren();
+  }
+  if (g.revealed && g.question.answerMedia?.length && !lastAnswerRendered) {
+    lastAnswerRendered = true;
+    renderMedia($('q-answer-media'), g.question.answerMedia, { interactive: false });
+  }
 
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {

@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { RoomManager } from './rooms.js';
 import { initSockets } from './sockets/index.js';
 import { createRoomsRouter } from './routes/rooms.js';
+import { createUploadRouter } from './media.js';
 
 const app = express();
 app.set('trust proxy', true); // чтобы req.protocol/host были корректны за nginx
@@ -19,7 +20,9 @@ rooms.restore();
 
 app.use(express.json());
 app.use(createRoomsRouter(rooms));
+app.use(createUploadRouter(rooms));
 app.use('/avatars', express.static(config.avatarsDir));
+app.use('/uploads', express.static(config.uploadsDir, { maxAge: '1h' }));
 // Табло: /room/ABCDE/screen
 app.get('/room/:id/screen', (req, res) => {
   res.sendFile(path.join(config.clientDir, 'board', 'index.html'));

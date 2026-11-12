@@ -11,7 +11,7 @@ export const TEST_PACK = {
           questions: [
             { price: 100, text: 'Столица Франции?', answer: 'Париж' },
             { price: 200, text: 'Самая длинная река Европы?', answer: 'Волга' },
-            { price: 300, text: 'Столица Австралии?', answer: 'Канберра' },
+            { price: 300, text: 'Флаг какой страны изображён на картинке?', answer: 'Россия', media: [{ type: 'image', src: '/testpack-media/flag.png' }] },
           ],
         },
         {
@@ -19,7 +19,7 @@ export const TEST_PACK = {
           questions: [
             { price: 100, text: 'Химический символ золота?', answer: 'Au' },
             { price: 200, text: 'Сколько планет в Солнечной системе?', answer: '8' },
-            { price: 300, text: 'Каким газом мы дышим больше всего?', answer: 'Азот' },
+            { price: 300, text: 'Какой тон звучит? (примерная частота)', answer: '440 Гц (нота ля первой октавы)', media: [{ type: 'audio', src: '/testpack-media/tone.wav' }] },
           ],
         },
       ],
@@ -32,7 +32,7 @@ export const TEST_PACK = {
           questions: [
             { price: 200, text: 'Режиссёр «Титаника»?', answer: 'Джеймс Кэмерон' },
             { price: 400, text: 'Год выхода первого «Терминатора»?', answer: '1984' },
-            { price: 600, text: 'Фильм, получивший «Оскар» за лучший фильм в 2020 году?', answer: 'Паразиты' },
+            { price: 600, text: 'Клип какого исполнителя сейчас на экране?', answer: 'Рик Эстли', media: [{ type: 'youtube', src: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }] },
           ],
         },
         {
@@ -40,7 +40,7 @@ export const TEST_PACK = {
           questions: [
             { price: 200, text: 'Сколько игроков футбольной команды одновременно на поле?', answer: '11' },
             { price: 400, text: 'Страна — родина дзюдо?', answer: 'Япония' },
-            { price: 600, text: 'Сколько колец на олимпийском флаге?', answer: '5' },
+            { price: 600, text: 'Сколько колец на олимпийском флаге?', answer: '5', answerMedia: [{ type: 'image', src: '/testpack-media/rings.png' }] },
           ],
         },
       ],

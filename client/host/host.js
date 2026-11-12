@@ -1,5 +1,6 @@
 import { socket, call, onReconnect } from '/shared/socket.js';
 import { h, toast, avatarEl, copyText } from '/shared/ui.js';
+import { renderMedia, preloadMedia } from '/shared/media.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
 const hostToken = roomId && localStorage.getItem(`sigame:host:${roomId}`);
@@ -12,6 +13,8 @@ const playersCount = $('players-count');
 const emptyHint = $('empty-hint');
 
 let countdownTimer = null;
+let lastMediaKey = null;      // какой вопрос уже отрендерен в #q-media
+let lastAnswerRendered = false; // картинка ответа уже показана
 
 const S = {
   phase: 'lobby',
@@ -95,6 +98,74 @@ $('start-btn').addEventListener('click', async () => {
     toast(e.message, 'error');
   }
 });
+
+// ---------- Загрузка медиафайлов ----------
+const uploadedMedia = []; // { url, kind, bytes }
+$('upload-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const kind = file.type.split('/')[0];
+  if (!['image', 'audio', 'video'].includes(kind)) {
+    toast('Поддерживаются только изображения, аудио и видео', 'error');
+    return;
+  }
+  uploadFile(file, kind);
+});
+
+function uploadFile(file, kind) {
+  const progress = $('upload-progress');
+  const bar = $('upload-progress-bar');
+  progress.hidden = false;
+  bar.style.width = '0%';
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `/api/upload?room=${roomId}&kind=${kind}`);
+  xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+  xhr.setRequestHeader('x-host-token', hostToken);
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) bar.style.width = `${Math.round((e.loaded / e.total) * 100)}%`;
+  };
+  xhr.onload = () => {
+    progress.hidden = true;
+    let res = {};
+    try { res = JSON.parse(xhr.responseText); } catch { /* не-json */ }
+    if (xhr.status === 200 && res.ok) {
+      uploadedMedia.push({ url: res.url, kind, bytes: res.bytes });
+      renderMediaList();
+      toast('Файл загружен');
+    } else {
+      toast(res.error || `Ошибка загрузки (${xhr.status})`, 'error');
+    }
+  };
+  xhr.onerror = () => {
+    progress.hidden = true;
+    toast('Ошибка сети при загрузке', 'error');
+  };
+  xhr.send(file);
+}
+
+function renderMediaList() {
+  const list = $('media-list');
+  list.replaceChildren();
+  for (const item of uploadedMedia) {
+    const preview = item.kind === 'image'
+      ? h('img', { class: 'media-thumb', src: item.url, alt: '' })
+      : h('span', { class: 'media-kind' }, item.kind === 'audio' ? '♪' : '▶');
+    list.append(
+      h('li', { class: 'media-item' },
+        preview,
+        h('code', { class: 'media-url' }, item.url),
+        h('button', {
+          class: 'mini secondary',
+          onclick: async () => {
+            const ok = await copyText(item.url);
+            toast(ok ? 'Ссылка скопирована' : 'Скопируйте вручную', ok ? 'info' : 'error');
+          },
+        }, 'Копировать'),
+      ),
+    );
+  }
+}
 
 // ---------- Кнопки управления ----------
 const act = (event, payload = {}) => () => call(event, payload).catch((e) => toast(e.message, 'error'));
@@ -206,11 +277,16 @@ socket.on('score:update', ({ scores }) => {
   if (S.phase !== 'lobby' && S.phase !== 'game_over') renderPlayersCtrl();
 });
 
-socket.on('answer:reveal', ({ answer }) => {
-  if (S.game?.question) S.game.question.answer = answer;
+socket.on('answer:reveal', ({ answer, answerMedia }) => {
+  if (S.game?.question) {
+    S.game.question.answer = answer;
+    S.game.question.answerMedia = answerMedia || [];
+  }
   if (S.game) S.game.revealed = true;
   render();
 });
+
+socket.on('round:media', ({ urls }) => preloadMedia(urls));
 
 socket.on('game:over', ({ standings }) => {
   S.phase = 'game_over';
@@ -226,6 +302,7 @@ function applyState(state) {
   S.game = state.game;
   S.log = state.log || [];
   fillSettings(state.settings);
+  preloadMedia(state.roundMedia);
   render();
   renderLog();
 }
@@ -234,6 +311,7 @@ function render() {
   const inLobby = S.phase === 'lobby';
   const isOver = S.phase === 'game_over';
   $('lobby-card').hidden = !inLobby;
+  $('media-card').hidden = !inLobby;
   $('settings-card').hidden = !inLobby;
   $('players-card').hidden = !inLobby;
   $('game-panel').hidden = inLobby || isOver;
@@ -352,6 +430,25 @@ function renderQuestion() {
   $('q-text').textContent = g.question.text || '';
   $('q-answer').textContent = g.question.answer && (S.phase === 'question' || S.phase === 'reveal' || S.game.revealed)
     ? `Ответ: ${g.question.answer}` : '';
+
+  // медиа рендерим один раз на вопрос, чтобы не дёргать воспроизведение
+  const mediaKey = `${g.question.themeIdx}:${g.question.qIdx}:${g.roundIndex}`;
+  if (mediaKey !== lastMediaKey) {
+    lastMediaKey = mediaKey;
+    lastAnswerRendered = false;
+    $('q-media').replaceChildren();
+    $('q-answer-media').replaceChildren();
+    if (g.question.media?.length) {
+      renderMedia($('q-media'), g.question.media, {
+        interactive: true,
+        onControl: (action) => socket.emit('media:control', { action }),
+      });
+    }
+  }
+  if (g.revealed && g.question.answerMedia?.length && !lastAnswerRendered) {
+    lastAnswerRendered = true;
+    renderMedia($('q-answer-media'), g.question.answerMedia, { interactive: false });
+  }
 
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {

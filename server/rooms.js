@@ -148,6 +148,9 @@ export class RoomManager {
       game: room.game ? this.publicGame(room, view) : null,
       log: room.log.slice(-50),
       canUndo: room.history.length > 0,
+      // предзагрузка: игроку имеет смысл отдавать, только если он увидит вопросы
+      roundMedia: (view !== 'player' || room.settings.showQuestionToPlayers)
+        ? this.roundMedia(room) : [],
     };
   }
 
@@ -180,9 +183,10 @@ export class RoomManager {
     };
     if (g.question) {
       const base = { themeIdx: g.question.themeIdx, qIdx: g.question.qIdx, price: g.question.price };
-      const withText = { ...base, themeTitle: g.question.themeTitle, text: g.question.text };
+      const media = g.question.media || [];
+      const withText = { ...base, themeTitle: g.question.themeTitle, text: g.question.text, media };
       if (view === 'host') {
-        state.question = { ...withText, answer: g.question.answer };
+        state.question = { ...withText, answer: g.question.answer, answerMedia: g.question.answerMedia || [] };
       } else if (view === 'board' || room.settings.showQuestionToPlayers) {
         state.question = withText;
       } else {
@@ -190,6 +194,23 @@ export class RoomManager {
       }
     }
     return state;
+  }
+
+  // Все локальные (не-youtube) медиа текущего раунда — для предзагрузки на клиентах
+  roundMedia(room) {
+    const g = room.game;
+    if (!g) return [];
+    const round = TEST_PACK.rounds[g.roundIndex];
+    if (!round) return [];
+    const urls = new Set();
+    for (const theme of round.themes) {
+      for (const q of theme.questions) {
+        for (const m of [...(q.media || []), ...(q.answerMedia || [])]) {
+          if (m.type !== 'youtube' && m.src) urls.add(m.src);
+        }
+      }
+    }
+    return [...urls];
   }
 
   touch(room) {

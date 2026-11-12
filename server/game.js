@@ -84,7 +84,12 @@ function sendQuestionToHost(io, room) {
 
 function emitQuestion(io, room) {
   const g = room.game;
-  const payload = { themeTitle: g.question.themeTitle, price: g.question.price, text: g.question.text };
+  const payload = {
+    themeTitle: g.question.themeTitle,
+    price: g.question.price,
+    text: g.question.text,
+    media: g.question.media || [],
+  };
   if (room.settings.showQuestionToPlayers) {
     io.to(room.id).emit('question:show', payload);
   } else {
@@ -93,6 +98,15 @@ function emitQuestion(io, room) {
     io.to(room.id).except(fullRoom(room.id)).emit('question:show', { themeTitle: g.question.themeTitle, price: g.question.price });
   }
   sendQuestionToHost(io, room);
+}
+
+// Предзагрузка медиа раунда: host/board всегда, игроки — если видят вопросы
+function emitRoundMedia(io, rooms, room) {
+  const urls = rooms.roundMedia(room);
+  io.to(fullRoom(room.id)).emit('round:media', { urls });
+  if (room.settings.showQuestionToPlayers) {
+    io.to(room.id).except(fullRoom(room.id)).emit('round:media', { urls });
+  }
 }
 
 // ---------- публичные действия ----------
@@ -116,6 +130,7 @@ export function startGame(io, rooms, room) {
   rooms.touch(room);
   emitBoard(io, rooms, room);
   emitPhase(io, room);
+  emitRoundMedia(io, rooms, room);
   logAction(io, rooms, room, 'Игра началась');
 }
 
@@ -127,7 +142,7 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   if (g.used[g.roundIndex][themeIdx][qIdx]) throw new Error('Ячейка уже сыграна');
 
   transition(room, 'question');
-  g.question = { themeIdx, qIdx, price: q.price, text: q.text, answer: q.answer, themeTitle: theme.title };
+  g.question = { themeIdx, qIdx, price: q.price, text: q.text, answer: q.answer, themeTitle: theme.title, media: q.media || [], answerMedia: q.answerMedia || [] };
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
@@ -276,7 +291,10 @@ export function revealAnswer(io, rooms, room) {
   if (room.phase !== 'reveal') throw new Error('Сейчас нечего показывать');
   room.game.revealed = true;
   rooms.touch(room);
-  io.to(room.id).emit('answer:reveal', { answer: room.game.question.answer });
+  io.to(room.id).emit('answer:reveal', {
+    answer: room.game.question.answer,
+    answerMedia: room.game.question.answerMedia || [],
+  });
   emitPhase(io, room);
   logAction(io, rooms, room, 'Показан правильный ответ');
 }
@@ -298,12 +316,14 @@ function advance(io, rooms, room) {
 
   const roundUsed = g.used[g.roundIndex];
   const roundDone = roundUsed.every((theme) => theme.every(Boolean));
+  let roundChanged = false;
   if (roundDone) {
     g.roundIndex += 1;
     if (g.roundIndex >= TEST_PACK.rounds.length) {
       finishGame(io, rooms, room);
       return;
     }
+    roundChanged = true;
     logAction(io, rooms, room, `Раунд ${g.roundIndex + 1}: ${TEST_PACK.rounds[g.roundIndex].title}`);
   }
 
@@ -311,6 +331,7 @@ function advance(io, rooms, room) {
   rooms.touch(room);
   emitBoard(io, rooms, room);
   emitPhase(io, room);
+  if (roundChanged) emitRoundMedia(io, rooms, room);
 }
 
 function finishGame(io, rooms, room) {
@@ -456,6 +477,7 @@ export function endRound(io, rooms, room) {
   rooms.touch(room);
   emitBoard(io, rooms, room);
   emitPhase(io, room);
+  emitRoundMedia(io, rooms, room);
 }
 
 export function endGame(io, rooms, room) {

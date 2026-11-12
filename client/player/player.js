@@ -1,5 +1,6 @@
 import { socket, call, onReconnect } from '/shared/socket.js';
 import { h, toast, avatarEl, beep, vibrate } from '/shared/ui.js';
+import { renderMedia, preloadMedia } from '/shared/media.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
 const storageKey = `sigame:player:${roomId}`;
@@ -21,6 +22,8 @@ const buzzBtn = $('buzz-btn');
 let avatarDataUrl = null;
 let myId = null;
 let countdownTimer = null;
+let lastMediaKey = null;      // какой вопрос уже отрендерен в #q-media
+let lastAnswerRendered = false; // картинка ответа уже показана
 
 // Локальное состояние, обновляемое событиями сервера
 const S = {
@@ -221,10 +224,15 @@ socket.on('score:update', ({ scores }) => {
   renderScores();
 });
 
-socket.on('answer:reveal', ({ answer }) => {
-  if (S.game?.question) S.game.question.answer = answer;
+socket.on('answer:reveal', ({ answer, answerMedia }) => {
+  if (S.game?.question) {
+    S.game.question.answer = answer;
+    S.game.question.answerMedia = answerMedia || [];
+  }
   render();
 });
+
+socket.on('round:media', ({ urls }) => preloadMedia(urls));
 
 socket.on('question:burned', () => {
   hideBuzz();
@@ -260,6 +268,7 @@ function applyState(state) {
   S.players = state.players;
   S.settings = state.settings;
   S.game = state.game;
+  preloadMedia(state.roundMedia);
   render();
 }
 
@@ -371,6 +380,22 @@ function renderStatus() {
   $('q-text').textContent = g.question?.text || '';
   $('q-answer').textContent = g.question?.answer && S.phase === 'reveal' && g.revealed
     ? `Ответ: ${g.question.answer}` : '';
+
+  // медиа приходит только если ведущий включил показ вопроса игрокам
+  const mediaKey = g.question ? `${g.question.themeIdx}:${g.question.qIdx}:${g.roundIndex}` : null;
+  if (mediaKey !== lastMediaKey) {
+    lastMediaKey = mediaKey;
+    lastAnswerRendered = false;
+    $('q-media').replaceChildren();
+    $('q-answer-media').replaceChildren();
+    if (g.question?.media?.length) {
+      renderMedia($('q-media'), g.question.media, { interactive: false });
+    }
+  }
+  if (g.revealed && g.question?.answerMedia?.length && !lastAnswerRendered) {
+    lastAnswerRendered = true;
+    renderMedia($('q-answer-media'), g.question.answerMedia, { interactive: false });
+  }
 
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {

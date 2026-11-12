@@ -209,6 +209,18 @@ export function registerGameHandlers(io, socket, rooms) {
     }
   });
 
+  // media:control { action: 'play'|'pause' } — общие контролы аудио/видео вопроса
+  socket.on('media:control', (payload, ack) => {
+    const done = reply(ack);
+    if (!isHost()) return done({ ok: false, error: 'Только ведущий управляет медиа' });
+    const room = roomOf();
+    if (!room) return done({ ok: false, error: 'Комната не найдена' });
+    const action = payload?.action;
+    if (!['play', 'pause'].includes(action)) return done({ ok: false, error: 'action: play|pause' });
+    io.to(room.id).emit('media:control', { action });
+    done({ ok: true });
+  });
+
   socket.on('game:end', (_p, ack) => {
     const done = reply(ack);
     try {
