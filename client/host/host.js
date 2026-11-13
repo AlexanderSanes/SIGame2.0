@@ -320,7 +320,7 @@ socket.on('auction:result', ({ bets }) => {
 });
 socket.on('final:start', ({ title }) => {
   playSound('special');
-  S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [] };
+  S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [] };
   S.finalAnswers = null;
   render();
 });
@@ -352,6 +352,18 @@ function applyState(state) {
   S.settings = state.settings;
   $('pack-title').textContent = state.packTitle ? `Пакет: ${state.packTitle}` : '';
   S.game = state.game;
+  S.special = null;
+  S.finalAnswers = null;
+  if (state.phase === 'cat' && state.game?.cat) {
+    S.special = { kind: 'cat', ...state.game.cat };
+  } else if (state.phase === 'auction' && state.game?.auction) {
+    S.special = { kind: 'auction', ...state.game.auction };
+  } else if (state.phase === 'final' && state.game?.final) {
+    S.special = { kind: 'final', ...state.game.final };
+    if (state.game.final.entries) {
+      S.finalAnswers = { answer: state.game.question?.answer ?? '', entries: state.game.final.entries };
+    }
+  }
   S.log = state.log || [];
   fillSettings(state.settings);
   preloadMedia(state.roundMedia);
@@ -607,6 +619,7 @@ function renderSpecial() {
 
 function renderControls() {
   const g = S.game;
+  $('round-end-btn').hidden = !['board', 'question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(S.phase);
   $('buzz-open-btn').hidden = S.phase !== 'question';
   $('correct-btn').hidden = S.phase !== 'answer';
   $('wrong-btn').hidden = S.phase !== 'answer';

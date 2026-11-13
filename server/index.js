@@ -35,6 +35,15 @@ app.use(express.static(config.clientDir));
 
 initSockets(io, rooms);
 
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[server] Порт ${config.port} уже занят. Если игра уже запущена, откройте http://localhost:${config.port}. Для второго сервера задайте другой PORT (PowerShell: $env:PORT=3001; npm start).`);
+  } else {
+    console.error('[server] Не удалось запустить сервер:', error);
+  }
+  process.exit(1);
+});
+
 server.listen(config.port, () => {
   console.log(`[server] http://localhost:${config.port}`);
 });

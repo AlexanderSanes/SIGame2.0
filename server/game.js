@@ -708,6 +708,9 @@ export function togglePause(io, rooms, room) {
 export function endRound(io, rooms, room) {
   const g = room.game;
   if (!g) throw new Error('Игра не идёт');
+  if (room.phase === 'final') throw new Error('В финале используйте «Завершить игру»');
+  if (!['board', 'question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(room.phase)
+      || !g.used[g.roundIndex]) throw new Error('Сейчас нельзя завершить раунд');
   clearAllTimers(room);
   g.used[g.roundIndex] = g.used[g.roundIndex].map((theme) => theme.map(() => true));
   g.question = null;

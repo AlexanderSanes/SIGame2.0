@@ -199,11 +199,14 @@ export class RoomManager {
         state.question = base;
       }
     }
+    if (room.phase === 'cat') state.cat = { basePrice: g.question?.price };
     if (room.phase === 'auction' && g.auction) {
-      state.auction = { minBet: g.auction.minBet, betCount: Object.keys(g.auction.bets).length };
+      state.auction = { minBet: g.auction.minBet, betCount: Object.keys(g.auction.bets).length,
+        playersCount: [...room.players.values()].filter((p) => p.connected && p.role !== 'spectator').length };
     }
     if (room.phase === 'final' && g.final) {
       state.final = {
+        title: room.pack.final?.title ?? g.question?.themeTitle ?? '',
         stage: g.final.stage,
         eligibleIds: [...room.players.values()].filter((p) => p.role !== 'spectator' && p.score > 0).map((p) => p.id),
         stakedIds: Object.keys(g.final.bets),
