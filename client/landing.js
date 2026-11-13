@@ -57,10 +57,6 @@ async function goToRoom() {
       errorEl.textContent = data.error || 'Комната не найдена';
       return;
     }
-    if (data.phase !== 'lobby') {
-      errorEl.textContent = 'Игра в этой комнате уже началась';
-      return;
-    }
     location.href = `/player/?room=${code}`;
   } catch {
     errorEl.textContent = 'Нет связи с сервером';

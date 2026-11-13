@@ -79,6 +79,17 @@ try{
   check('revoked-old-socket','старая вкладка после кика лишена роли игрока',!(await call(p.s,'buzz:press')).ok);
  });
  await test('zero-timer-setting',async()=>{const c=await setup();await ok(c.host,'settings:update',{answerTimeSec:0});let s=await c.state();check('zero-is-unlimited','0 секунд включает безлимит',s.settings.answerTimeSec===0&&s.settings.unlimitedAnswerTime);await ok(c.host,'settings:update',{answerTimeSec:7});s=await c.state();check('positive-restores-timer','положительное число возвращает таймер',s.settings.answerTimeSec===7&&!s.settings.unlimitedAnswerTime);});
+ await test('late-join',async()=>{
+  const c=await setup(1);await c.start();const original=(await c.state()).game.pickerId;
+  const join=async nick=>{const socket=await connect();const r=await ok(socket,'room:join',{roomId:c.auth.roomId,nick});return {...r,s:socket};};
+  const board=await join('Поздний');check('join-board','поздний вход даёт поле, 0 очков и сохраняет выбирающего',board.state.phase==='board'&&board.state.players.find(p=>p.id===board.playerId).score===0&&(await c.state()).game.pickerId===original);
+  await ok(c.host,'board:select',{themeIdx:0,qIdx:0});const question=await join('Вопрос');check('join-question','позднему игроку не раскрыт скрытый текст',question.state.phase==='question'&&!question.state.game.question.text);
+  await ok(c.host,'buzz:open');const buzz=await join('Кнопка');check('join-buzz','вход при открытой кнопке позволяет ответить',(await call(buzz.s,'buzz:press')).accepted);
+  const answer=await join('Ответ');check('join-answer','новый игрок не перехватывает отвечающего',answer.state.game.buzz.winnerId===buzz.playerId&&!(await call(answer.s,'buzz:press')).accepted);
+  await ok(c.host,'answer:judge',{correct:true});await ok(c.host,'score:adjust',{playerId:board.playerId,delta:100});await ok(c.host,'round:end');
+  const final=await join('Финал');check('join-final','вход в финал только зрителем',final.state.phase==='final'&&final.state.players.find(p=>p.id===final.playerId).role==='spectator'&&!(await call(final.s,'final:stake',{amount:0})).ok);
+  await ok(c.host,'game:end');const over=await join('Итоги');check('join-game-over','вход после конца показывает итоги, не меняя места',over.state.phase==='game_over'&&!over.state.standings.some(p=>p.id===over.playerId));
+ });
  await test('load-50',async()=>{const c=await setup(50,'test-pack');await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await ok(c.host,'buzz:open');const start=performance.now();const race=await Promise.all(c.players.map(p=>call(p.s,'buzz:press')));metrics.race50Ms=+(performance.now()-start).toFixed(2);check('load-50','гонка 50 клиентов даёт одного победителя',race.filter(r=>r.accepted).length===1,{winners:race.filter(r=>r.accepted).length,durationMs:metrics.race50Ms});});
  await test('rtt',async()=>{const c=await setup(1);const times=[];for(let i=0;i<150;i++){const start=performance.now();await c.state();times.push(performance.now()-start);}times.sort((a,b)=>a-b);metrics.stateRTT={p50:+times[75].toFixed(2),p95:+times[142].toFixed(2),max:+times.at(-1).toFixed(2),samples:times.length};check('rtt','150 последовательных запросов состояния завершены',true,metrics.stateRTT);});
  check('server-alive','после всех ошибочных запросов сервер жив',(await fetch(BASE+'/healthz')).ok);

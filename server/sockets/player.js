@@ -10,7 +10,6 @@ export function registerPlayerHandlers(io, socket, rooms) {
       const { roomId, nick, avatar } = payload || {};
       const room = rooms.get(roomId);
       if (!room) return reply({ ok: false, error: 'Комната не найдена' });
-      if (room.phase !== 'lobby') return reply({ ok: false, error: 'Игра уже началась' });
 
       const trimmedNick = typeof nick === 'string' ? nick.trim() : '';
       const nickError = validateNick(trimmedNick);
@@ -29,7 +28,10 @@ export function registerPlayerHandlers(io, socket, rooms) {
         }
       }
 
+      // Финал уже сформирован: новые участники наблюдают, не меняя ставки и итоги.
+      if (['final', 'game_over'].includes(room.phase)) player.role = 'spectator';
       bindSession(io, socket, rooms, room, 'player', player.id);
+      if (room.phase === 'board' && !room.game.pickerId) game.setPicker(io, rooms, room, player.id);
       rooms.touch(room);
 
       broadcastLobby(io, rooms, room);
@@ -37,7 +39,7 @@ export function registerPlayerHandlers(io, socket, rooms) {
         ok: true,
         playerId: player.id,
         sessionToken: player.sessionToken,
-        state: rooms.buildState(room),
+        state: rooms.buildState(room, player.role === 'spectator' ? 'board' : 'player', player.id),
       });
     } catch (e) {
       console.error('[room:join]', e);
