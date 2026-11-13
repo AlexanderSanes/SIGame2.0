@@ -44,7 +44,7 @@ function clearAllTimers(room) {
 
 export function logAction(io, rooms, room, text) {
   const entry = rooms.addLog(room, text);
-  io.to(room.id).emit('log:entry', entry);
+  io.to(room.id).emit('log:entry', {...entry,canUndo:room.history.length>0,undoLabel:rooms.undoLabel(room)});
 }
 
 // ---------- рассылки ----------
@@ -163,6 +163,7 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   g.paused = false;
   g.deadlineTs = null;
   g.disconnectedAnswer = null;
+  g.mediaControl = null;
   g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   rooms.touch(room);
@@ -465,6 +466,7 @@ function advance(io, rooms, room) {
   g.paused = false;
   g.deadlineTs = null;
   g.disconnectedAnswer = null;
+  g.mediaControl = null;
   g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.roundIndex = nextRound;
@@ -527,6 +529,7 @@ function startFinal(io, rooms, room) {
   g.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {}, eligibleIds: finalEligible(room).map((p) => p.id) };
   g.question = { id: randomUUID(), themeIdx: -1, qIdx: -1, price: 0, text: f.text, answer: f.answer, themeTitle: f.title, type: 'final', media: f.media || [], answerMedia: [] };
   g.disconnectedAnswer = null;
+  g.mediaControl = null;
   g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.deadlineTs = null;
@@ -783,6 +786,7 @@ export function endRound(io, rooms, room) {
   g.paused = false;
   g.deadlineTs = null;
   g.disconnectedAnswer = null;
+  g.mediaControl = null;
   g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.roundIndex += 1;

@@ -133,6 +133,11 @@ export class RoomManager {
     }));
   }
 
+  undoLabel(room) {
+    const e=room.history.at(-1);if(!e)return '';
+    return `${e.type==='adjust'?'корректировку':e.type==='finalVerdict'?'вердикт финала':'вердикт'} — ${room.players.get(e.playerId)?.nick || 'игрок'}`;
+  }
+
   pushHistory(room, entry) {
     room.history.push(entry);
     if (room.history.length > HISTORY_LIMIT) room.history.shift();
@@ -157,6 +162,7 @@ export class RoomManager {
       game: room.game ? this.publicGame(room, view) : null,
       log: room.log.slice(-50),
       canUndo: room.history.length > 0,
+      undoLabel: this.undoLabel(room),
       standings: room.phase === 'game_over' ? this.standings(room) : null,
       // предзагрузка: игроку имеет смысл отдавать, только если он увидит вопросы
       roundMedia: (view !== 'player' || room.settings.showQuestionToPlayers)
@@ -195,6 +201,7 @@ export class RoomManager {
       revealed: g.revealed,
       paused: Boolean(g.paused),
       deadlineTs: g.deadlineTs,
+      mediaControl: g.mediaControl || null,
       buzz: {
         open: g.buzz.open,
         winnerId: g.buzz.winnerId,

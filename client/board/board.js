@@ -97,7 +97,7 @@ socket.on('answer:reveal', ({ answer, answerMedia }) => {
   }
   render();
 });
-socket.on('media:control', ({ action }) => applyMediaControl(currentPlayers, action));
+socket.on('media:control', ({ action, position }) => applyMediaControl(currentPlayers, action, position));
 socket.on('round:media', ({ urls }) => preloadMedia(urls));
 
 // особые механики: сплэш + звук
@@ -127,10 +127,14 @@ function applyState(state) {
       ? { kind: 'auction', ...state.game.auction }
       : state.phase === 'cat' ? { kind: 'cat' } : null;
   preloadMedia(state.roundMedia);
+  lastMediaKey = null;
   render();
+  const control=state.game?.mediaControl;
+  if(control){const elapsed=control.action==='play'?Math.max(0,(Date.now()-control.timestamp)/1000):0;applyMediaControl(currentPlayers,control.action,Number.isFinite(control.position)?control.position+elapsed:null);}
 }
 
 function render() {
+  document.body.dataset.phase = S.phase;
   $('empty').hidden = true;
   const isOver = S.phase === 'game_over';
   $('screen').hidden = isOver;
@@ -191,6 +195,9 @@ function renderBoard() {
   if (card.hidden) return;
   $('board-round').textContent = g.roundTitle || '';
   const grid = $('board-grid');
+  const boardSignature=JSON.stringify([g.board,g.pickerId,S.settings?.picker]);
+  if(grid.dataset.signature===boardSignature)return;
+  grid.dataset.signature=boardSignature;
   grid.replaceChildren();
   g.board.themes.forEach((theme) => {
     const cells = h('div', { class: 'board-cells' });

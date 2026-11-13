@@ -20,7 +20,8 @@ function tone(freq, startAt, durationMs, type = 'sine', gain = 0.12) {
     osc.type = type;
     osc.frequency.value = freq;
     const t0 = ctx.currentTime + startAt / 1000;
-    vol.gain.setValueAtTime(gain, t0);
+    const level=Math.min(1,Math.max(0,Number(localStorage.getItem('sigame:effects-volume') ?? 1)));
+    vol.gain.setValueAtTime(Math.max(.001,gain*level), t0);
     vol.gain.exponentialRampToValueAtTime(0.001, t0 + durationMs / 1000);
     osc.connect(vol).connect(ctx.destination);
     osc.start(t0);

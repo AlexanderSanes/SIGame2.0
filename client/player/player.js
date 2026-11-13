@@ -1,6 +1,6 @@
 import { socket, call, onReconnect } from '/shared/socket.js';
 import { h, toast, avatarEl, vibrate } from '/shared/ui.js';
-import { renderMedia, preloadMedia } from '/shared/media.js';
+import { renderMedia, preloadMedia, applyMediaControl } from '/shared/media.js';
 import { playSound, muteButton } from '/shared/sounds.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
@@ -23,6 +23,7 @@ const buzzBtn = $('buzz-btn');
 let avatarDataUrl = null;
 let myId = null;
 let countdownTimer = null;
+let currentPlayers = [];
 let lastTick = null;          // последняя прозвучавшая секунда тиканья
 let lastMediaKey = null;      // какой вопрос уже отрендерен в #q-media
 let lastAnswerRendered = false; // картинка ответа уже показана
@@ -341,10 +342,14 @@ function applyState(state) {
       ? { kind: 'auction', ...state.game.auction }
       : state.phase === 'cat' ? { kind: 'cat' } : null;
   preloadMedia(state.roundMedia);
+  lastMediaKey = null;
   render();
+  const control=state.game?.mediaControl;
+  if(control){const elapsed=control.action==='play'?Math.max(0,(Date.now()-control.timestamp)/1000):0;applyMediaControl(currentPlayers,control.action,Number.isFinite(control.position)?control.position+elapsed:null);}
 }
 
 function render() {
+  document.body.dataset.phase = S.phase;
   joinForm.hidden = true;
   gone.hidden = true;
   lobby.hidden = S.phase !== 'lobby';
@@ -417,6 +422,9 @@ function renderBoard() {
       : `Выбирает: ${picker?.nick || 'ведущий'}`;
 
   const grid = $('board-grid');
+  const boardSignature=JSON.stringify([g.board,g.pickerId,S.settings?.picker]);
+  if(grid.dataset.signature===boardSignature)return;
+  grid.dataset.signature=boardSignature;
   grid.replaceChildren();
   g.board.themes.forEach((theme, t) => {
     const cells = h('div', { class: 'board-cells' });
@@ -462,7 +470,7 @@ function renderStatus() {
     $('q-media').replaceChildren();
     $('q-answer-media').replaceChildren();
     if (g.question?.media?.length) {
-      renderMedia($('q-media'), g.question.media, { interactive: false });
+      currentPlayers = renderMedia($('q-media'), g.question.media, { interactive: false });
     }
   }
   if (g.revealed && g.question?.answerMedia?.length && !lastAnswerRendered) {
@@ -592,10 +600,12 @@ function hideBuzz() {
 
 function startCountdown(deadlineTs) {
   stopCountdown();
+  const duration = Math.max(1, deadlineTs - Date.now());
   lastTick = null;
   const tick = () => {
     const left = Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000));
     $('countdown').textContent = left > 0 ? String(left) : '';
+    $('countdown').style.setProperty('--remaining',String(Math.max(0,(deadlineTs-Date.now())/duration)));
     if (left > 0 && left <= 5 && left !== lastTick) {
       lastTick = left;
       playSound('tick');
@@ -632,3 +642,5 @@ function showGone(text) {
   gone.hidden = false;
   $('gone-text').textContent = text;
 }
+
+socket.on('media:control', ({action,position})=>applyMediaControl(currentPlayers,action,position));

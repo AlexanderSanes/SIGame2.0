@@ -227,6 +227,10 @@ socket.on('lobby:players', (players) => {
 });
 
 socket.on('log:entry', (entry) => {
+  if(typeof entry.canUndo === 'boolean')S.canUndo=entry.canUndo;
+  S.undoLabel=entry.undoLabel || '';
+  $('undo-btn').disabled=!S.canUndo;
+  $('undo-btn').textContent=S.undoLabel?`Отменить: ${S.undoLabel}`:'Отменить начисление';
   S.log.push(entry);
   if (S.log.length > 100) S.log.shift();
   renderLog();
@@ -379,6 +383,8 @@ function applyState(state) {
     }
   }
   S.log = state.log || [];
+  S.canUndo = state.canUndo;
+  S.undoLabel = state.undoLabel;
   fillSettings(state.settings);
   preloadMedia(state.roundMedia);
   render();
@@ -386,6 +392,7 @@ function applyState(state) {
 }
 
 function render() {
+  document.body.dataset.phase = S.phase;
   const inLobby = S.phase === 'lobby';
   const isOver = S.phase === 'game_over';
   $('lobby-card').hidden = !inLobby;
@@ -474,6 +481,9 @@ function renderBoard() {
     : 'Выберите ячейку';
 
   const grid = $('board-grid');
+  const boardSignature=JSON.stringify([g.board,g.pickerId,S.settings?.picker]);
+  if(grid.dataset.signature===boardSignature)return;
+  grid.dataset.signature=boardSignature;
   grid.replaceChildren();
   g.board.themes.forEach((theme, t) => {
     const cells = h('div', { class: 'board-cells' });
@@ -520,7 +530,7 @@ function renderQuestion() {
     if (g.question.media?.length) {
       renderMedia($('q-media'), g.question.media, {
         interactive: true,
-        onControl: (action) => socket.emit('media:control', { action }),
+        onControl: (action, position) => socket.emit('media:control', { action, position }),
       });
     }
   }
@@ -594,7 +604,7 @@ function renderSpecial() {
     if (sp.stage === 'stake') {
       card.append(
         h('h2', {}, `★ Финал: ${sp.title}`),
-        h('p', { class: 'center' }, `Ставок: ${sp.stakedIds.length}/${sp.eligibleIds.length}`),
+        h('p', { class: 'center' }, sp.eligibleIds.length ? `Ставок: ${sp.stakedIds.length}/${sp.eligibleIds.length}` : 'Нет игроков с положительным счётом. Можно завершить игру.'),
         h('button', { onclick: () => call('final:go', {}).catch((e) => toast(e.message, 'error')) },
           'Открыть вопрос (30 сек на ответы)'),
       );
@@ -633,6 +643,8 @@ function renderSpecial() {
 
 function renderControls() {
   const g = S.game;
+  $('undo-btn').disabled=!S.canUndo;
+  $('undo-btn').textContent=S.undoLabel?`Отменить: ${S.undoLabel}`:'Отменить начисление';
   $('round-end-btn').hidden = !['board', 'question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(S.phase);
   $('buzz-open-btn').hidden = S.phase !== 'question';
   $('correct-btn').hidden = S.phase !== 'answer';
@@ -649,15 +661,20 @@ function renderControls() {
 // Список игроков с управлением счётом и ролями
 function renderPlayersCtrl() {
   const list = $('players-ctrl');
+  const signature = JSON.stringify([S.players,S.phase,S.game?.pickerId,S.game?.question?.price]);
+  if (list.dataset.signature === signature) return;
+  list.dataset.signature = signature;
+  const drafts = new Map([...list.querySelectorAll('.adj-input')].map(e=>[e.closest('[data-player-id]')?.dataset.playerId,e.value]));
   list.replaceChildren();
   const price = S.game?.question?.price ?? 100;
-  for (const p of S.players) {
+  for (const [index,p] of S.players.entries()) {
     const isSpectator = p.role === 'spectator';
     const isPicker = S.game?.pickerId === p.id;
 
     const adjInput = h('input', {
       class: 'adj-input', type: 'number', placeholder: '±сумма', step: '50',
     });
+    adjInput.value = drafts.get(p.id) || '';
     const applyAdj = async () => {
       const delta = Number.parseInt(adjInput.value, 10);
       if (!delta) return;
@@ -671,7 +688,7 @@ function renderPlayersCtrl() {
     adjInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyAdj(); });
 
     list.append(
-      h('li', { class: `player-ctrl${p.connected ? '' : ' offline'}` },
+      h('li', { 'data-player-id': p.id, class: `player-ctrl${p.connected ? '' : ' offline'}` },
         h('div', { class: 'row' },
           avatarEl(p, 32),
           h('span', { class: 'nick' }, p.nick),
@@ -719,10 +736,12 @@ function renderLog() {
 
 function startCountdown(deadlineTs) {
   stopCountdown();
+  const duration = Math.max(1, deadlineTs - Date.now());
   lastTick = null;
   const tick = () => {
     const left = Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000));
     $('countdown').textContent = left > 0 ? String(left) : '';
+    $('countdown').style.setProperty('--remaining',String(Math.max(0,(deadlineTs-Date.now())/duration)));
     if (left > 0 && left <= 5 && left !== lastTick) {
       lastTick = left;
       playSound('tick');
@@ -754,3 +773,14 @@ function renderStandings() {
 }
 
 onReconnect(auth);
+
+document.addEventListener('keydown', (e) => {
+  if (e.repeat || e.ctrlKey || e.altKey || e.metaKey || e.target.closest('input,textarea,select,[contenteditable]')) return;
+  const id = {' ':'buzz-open-btn',v:'correct-btn',x:'wrong-btn',p:'pause-btn'}[e.key.toLowerCase()];
+  const button = id && $(id);
+  if (button && !button.hidden && !button.disabled) { e.preventDefault(); button.click(); }
+});
+$('export-log').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([S.log.map(e => `${new Date(e.ts).toISOString()} ${e.text}`).join('\n')],{type:'text/plain;charset=utf-8'}));
+  const a=document.createElement('a'); a.href=url; a.download=`sigame-${roomId}.txt`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+});

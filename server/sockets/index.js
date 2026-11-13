@@ -9,6 +9,7 @@ import { broadcastLobby } from './helpers.js';
 export function initSockets(io, rooms) {
   io.on('connection', (socket) => {
     socketLimits(socket);
+    socket.on('diagnostics:ping',(_payload,ack)=>{if(typeof ack==='function')ack({ok:true});});
     socket.on('disconnect', () => {
       const room = rooms.get(socket.data?.roomId);
       if (room && room.hostSocketId === socket.id) { room.hostSocketId = null; rooms.touch(room); }
