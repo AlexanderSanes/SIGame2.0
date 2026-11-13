@@ -198,6 +198,7 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
 
 function armAnswerTimer(io, rooms, room, delay) {
   clearTimer(room, 'answer');
+  if (room.settings.unlimitedAnswerTime) { room.game.deadlineTs = null; return; }
   const attemptId = room.game.answerAttemptId;
   room._timers.answer = setTimeout(() => {
     if (room.game.answerAttemptId === attemptId) applyVerdict(io, rooms, room, false, { auto: true });

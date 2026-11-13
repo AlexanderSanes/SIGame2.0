@@ -17,6 +17,7 @@ function generateCode(length) {
 
 const DEFAULT_SETTINGS = {
   picker: 'player',            // 'player' — выбирает игрок с правом выбора, 'host' — только ведущий
+  unlimitedAnswerTime: false,
   answerTimeSec: 7,            // таймер на ответ после нажатия
   buzzTimeoutSec: 15,          // сколько кнопка открыта, потом вопрос сгорает
   showQuestionToPlayers: false, // показывать ли текст вопроса на телефонах игроков

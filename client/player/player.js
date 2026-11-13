@@ -178,7 +178,7 @@ socket.on('game:phase', (p) => {
   S.game.buzz.winnerId = p.winnerId;
   S.game.revealed = p.revealed;
   S.game.paused = p.paused;
-  S.game.deadlineTs = p.deadlineTs ?? S.game.deadlineTs;
+  S.game.deadlineTs = p.deadlineTs;
   if (p.phase === 'board') { S.game.question = null; S.special = null; }
   render();
 });
@@ -500,7 +500,7 @@ function renderStatus() {
     startCountdown(g.deadlineTs);
   } else {
     stopCountdown();
-    $('countdown').textContent = '';
+    $('countdown').textContent = S.phase === 'answer' && S.settings?.unlimitedAnswerTime ? '∞' : '';
   }
 }
 

@@ -76,6 +76,8 @@ async function renderHeader() {
 function fillSettings(s) {
   $('set-picker').value = s.picker;
   $('set-answer-time').value = s.answerTimeSec;
+  $('set-unlimited-answer').checked = Boolean(s.unlimitedAnswerTime);
+  $('set-answer-time').disabled = Boolean(s.unlimitedAnswerTime);
   $('set-buzz-timeout').value = s.buzzTimeoutSec;
   $('set-show-question').checked = s.showQuestionToPlayers;
   $('set-false-start').checked = Boolean(s.falseStart);
@@ -85,6 +87,7 @@ async function saveSettings({ notify = true } = {}) {
   try {
     const res = await call('settings:update', {
       picker: $('set-picker').value,
+      unlimitedAnswerTime: $('set-unlimited-answer').checked,
       answerTimeSec: Number($('set-answer-time').value),
       buzzTimeoutSec: Number($('set-buzz-timeout').value),
       showQuestionToPlayers: $('set-show-question').checked,
@@ -557,7 +560,7 @@ function renderQuestion() {
     startCountdown(g.deadlineTs);
   } else {
     stopCountdown();
-    $('countdown').textContent = '';
+    $('countdown').textContent = S.phase === 'answer' && S.settings?.unlimitedAnswerTime ? '∞' : '';
   }
 }
 
@@ -783,3 +786,5 @@ $('export-log').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([S.log.map(e => `${new Date(e.ts).toISOString()} ${e.text}`).join('\n')],{type:'text/plain;charset=utf-8'}));
   const a=document.createElement('a'); a.href=url; a.download=`sigame-${roomId}.txt`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
+
+$('set-unlimited-answer').addEventListener('change',()=>{$('set-answer-time').disabled=$('set-unlimited-answer').checked;});

@@ -37,6 +37,10 @@ export function registerGameHandlers(io, socket, rooms) {
       if (!['player', 'host'].includes(payload.picker)) return done({ ok: false, error: 'picker: player|host' });
       s.picker = payload.picker;
     }
+    if (payload.unlimitedAnswerTime !== undefined) {
+      if (typeof payload.unlimitedAnswerTime !== 'boolean') return done({ok:false,error:'unlimitedAnswerTime: boolean'});
+      s.unlimitedAnswerTime = payload.unlimitedAnswerTime;
+    }
     if (payload.answerTimeSec !== undefined) s.answerTimeSec = clampInt(payload.answerTimeSec, 3, 30, s.answerTimeSec);
     if (payload.buzzTimeoutSec !== undefined) s.buzzTimeoutSec = clampInt(payload.buzzTimeoutSec, 5, 60, s.buzzTimeoutSec);
     if (payload.showQuestionToPlayers !== undefined) s.showQuestionToPlayers = Boolean(payload.showQuestionToPlayers);
