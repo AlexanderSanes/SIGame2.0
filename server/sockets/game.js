@@ -41,7 +41,12 @@ export function registerGameHandlers(io, socket, rooms) {
       if (typeof payload.unlimitedAnswerTime !== 'boolean') return done({ok:false,error:'unlimitedAnswerTime: boolean'});
       s.unlimitedAnswerTime = payload.unlimitedAnswerTime;
     }
-    if (payload.answerTimeSec !== undefined) s.answerTimeSec = clampInt(payload.answerTimeSec, 3, 30, s.answerTimeSec);
+    if (payload.answerTimeSec !== undefined) {
+      const seconds = game.strictInteger(payload.answerTimeSec);
+      if (!Number.isFinite(seconds) || seconds < 0 || seconds > 30) return done({ok:false,error:'Таймер ответа: от 0 до 30 секунд'});
+      s.answerTimeSec = seconds;
+      s.unlimitedAnswerTime = seconds === 0;
+    }
     if (payload.buzzTimeoutSec !== undefined) s.buzzTimeoutSec = clampInt(payload.buzzTimeoutSec, 5, 60, s.buzzTimeoutSec);
     if (payload.showQuestionToPlayers !== undefined) s.showQuestionToPlayers = Boolean(payload.showQuestionToPlayers);
     if (payload.falseStart !== undefined) s.falseStart = Boolean(payload.falseStart);
