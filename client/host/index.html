@@ -20,6 +20,7 @@
       <div class="card" id="lobby-card">
         <div class="muted center">Код комнаты</div>
         <div class="room-code" id="room-code"></div>
+        <div class="muted center" id="pack-title"></div>
         <div class="qr-box">
           <img id="qr" alt="QR-код для подключения">
           <div class="join-link" id="join-link"></div>
@@ -30,7 +31,7 @@
 
       <div class="card" id="media-card">
         <h2>Медиафайлы</h2>
-        <p class="muted">Картинки до 5 МБ, аудио до 10 МБ, видео до 100 МБ. Ссылку вставляйте в пакет вопросов.</p>
+        <p class="muted">Картинки до 5 МБ, аудио до 10 МБ, видео до 100 МБ. Привязка к вопросам — в <a href="/packs/">редакторе пакетов</a>.</p>
         <input type="file" id="upload-input" accept="image/*,audio/*,video/*">
         <div class="upload-progress" id="upload-progress" hidden>
           <div class="upload-progress-bar" id="upload-progress-bar"></div>
@@ -90,6 +91,7 @@
               <p class="center" id="status-text"></p>
               <div class="countdown" id="countdown"></div>
             </div>
+
           </div>
 
           <div class="host-side">

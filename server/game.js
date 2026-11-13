@@ -1,5 +1,3 @@
-import { TEST_PACK } from './testpack.js';
-
 // Единственное место, где меняется room.phase. Допустимые переходы:
 const ALLOWED = {
   lobby: ['board'],                              // game:start
@@ -56,8 +54,8 @@ function emitBoard(io, rooms, room) {
   io.to(room.id).emit('board:update', rooms.publicGame(room, 'board').board);
   io.to(room.id).emit('game:round', {
     roundIndex: room.game.roundIndex,
-    roundsTotal: TEST_PACK.rounds.length,
-    roundTitle: TEST_PACK.rounds[room.game.roundIndex].title,
+    roundsTotal: room.pack.rounds.length,
+    roundTitle: room.pack.rounds[room.game.roundIndex].title,
   });
 }
 
@@ -85,6 +83,8 @@ function sendQuestionToHost(io, room) {
 function emitQuestion(io, room) {
   const g = room.game;
   const payload = {
+    themeIdx: g.question.themeIdx,
+    qIdx: g.question.qIdx,
     themeTitle: g.question.themeTitle,
     price: g.question.price,
     text: g.question.text,
@@ -95,7 +95,7 @@ function emitQuestion(io, room) {
   } else {
     io.to(fullRoom(room.id)).emit('question:show', payload);
     // игрокам — только цена и тема, чтобы сбросить прошлый вопрос (текст не светим)
-    io.to(room.id).except(fullRoom(room.id)).emit('question:show', { themeTitle: g.question.themeTitle, price: g.question.price });
+    io.to(room.id).except(fullRoom(room.id)).emit('question:show', { themeIdx: g.question.themeIdx, qIdx: g.question.qIdx, themeTitle: g.question.themeTitle, price: g.question.price });
   }
   sendQuestionToHost(io, room);
 }
@@ -119,7 +119,7 @@ export function startGame(io, rooms, room) {
   room.game = {
     roundIndex: 0,
     pickerId: pool[Math.floor(Math.random() * pool.length)].id,
-    used: TEST_PACK.rounds.map((r) => r.themes.map((t) => t.questions.map(() => false))),
+    used: room.pack.rounds.map((r) => r.themes.map((t) => t.questions.map(() => false))),
     question: null,
     revealed: false,
     paused: false,
@@ -136,7 +136,7 @@ export function startGame(io, rooms, room) {
 
 export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   const g = room.game;
-  const theme = TEST_PACK.rounds[g.roundIndex].themes[themeIdx];
+  const theme = room.pack.rounds[g.roundIndex].themes[themeIdx];
   const q = theme?.questions[qIdx];
   if (!q) throw new Error('Ячейка не найдена');
   if (g.used[g.roundIndex][themeIdx][qIdx]) throw new Error('Ячейка уже сыграна');
@@ -319,12 +319,12 @@ function advance(io, rooms, room) {
   let roundChanged = false;
   if (roundDone) {
     g.roundIndex += 1;
-    if (g.roundIndex >= TEST_PACK.rounds.length) {
+    if (g.roundIndex >= room.pack.rounds.length) {
       finishGame(io, rooms, room);
       return;
     }
     roundChanged = true;
-    logAction(io, rooms, room, `Раунд ${g.roundIndex + 1}: ${TEST_PACK.rounds[g.roundIndex].title}`);
+    logAction(io, rooms, room, `Раунд ${g.roundIndex + 1}: ${room.pack.rounds[g.roundIndex].title}`);
   }
 
   transition(room, 'board');
@@ -469,7 +469,7 @@ export function endRound(io, rooms, room) {
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.roundIndex += 1;
   logAction(io, rooms, room, 'Раунд завершён досрочно');
-  if (g.roundIndex >= TEST_PACK.rounds.length) {
+  if (g.roundIndex >= room.pack.rounds.length) {
     finishGame(io, rooms, room);
     return;
   }

@@ -5,11 +5,27 @@ const createBtn = document.getElementById('create-btn');
 const joinBtn = document.getElementById('join-btn');
 const codeInput = document.getElementById('code-input');
 const errorEl = document.getElementById('error');
+const packSelect = document.getElementById('pack-select');
+
+(async () => {
+  try {
+    const res = await fetch('/api/packs');
+    const data = await res.json();
+    for (const p of data.packs || []) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.title} (${p.rounds} раундов, ${p.questions} вопросов)`;
+      packSelect.append(opt);
+    }
+  } catch {
+    toast('Не удалось загрузить список пакетов', 'error');
+  }
+})();
 
 createBtn.addEventListener('click', async () => {
   createBtn.disabled = true;
   try {
-    const { roomId, hostToken } = await call('room:create', {});
+    const { roomId, hostToken } = await call('room:create', { packId: packSelect.value || null });
     localStorage.setItem(`sigame:host:${roomId}`, hostToken);
     location.href = `/host/?room=${roomId}`;
   } catch (e) {

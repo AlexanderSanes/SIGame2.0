@@ -4,10 +4,10 @@ import * as game from '../game.js';
 const fullRoom = (roomId) => `${roomId}:full`;
 
 export function registerHostHandlers(io, socket, rooms) {
-  socket.on('room:create', (_payload, ack) => {
+  socket.on('room:create', (payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
-    const room = rooms.createRoom();
-    reply({ ok: true, roomId: room.id, hostToken: room.hostToken });
+    const room = rooms.createRoom(payload?.packId || null);
+    reply({ ok: true, roomId: room.id, hostToken: room.hostToken, packTitle: room.pack.title });
   });
 
   socket.on('player:kick', (payload, ack) => {

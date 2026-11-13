@@ -31,9 +31,13 @@ export function createUploadRouter(rooms) {
     '/api/upload',
     express.raw({ type: () => true, limit: `${Math.ceil(config.uploadLimits.video / 1024 / 1024)}mb` }),
     (req, res) => {
-      const room = rooms.get(req.query.room);
-      if (!room || req.get('x-host-token') !== room.hostToken) {
-        return res.status(403).json({ ok: false, error: 'Нет доступа' });
+      // С ?room — загрузка ведущего в комнату (нужен hostToken).
+      // Без ?room — загрузка в общую медиатеку из редактора пакетов.
+      if (req.query.room) {
+        const room = rooms.get(req.query.room);
+        if (!room || req.get('x-host-token') !== room.hostToken) {
+          return res.status(403).json({ ok: false, error: 'Нет доступа' });
+        }
       }
       const kind = req.query.kind;
       if (!['image', 'audio', 'video'].includes(kind)) {

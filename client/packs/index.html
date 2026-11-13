@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Пакеты вопросов — Своя игра</title>
+  <link rel="stylesheet" href="/shared/style.css">
+  <link rel="stylesheet" href="/packs/packs.css">
+</head>
+<body>
+  <main class="packs-main">
+    <!-- Список пакетов -->
+    <div id="view-list">
+      <h1>Пакеты вопросов</h1>
+      <div class="toolbar">
+        <button id="create-pack">Создать пакет</button>
+        <label class="btn secondary file-btn">
+          Импорт из файла
+          <input type="file" id="import-input" accept=".json,application/json" hidden>
+        </label>
+        <a class="muted" href="/">← На главную</a>
+      </div>
+      <div id="import-errors" class="error-list" hidden></div>
+      <div id="packs-list"></div>
+    </div>
+
+    <!-- Редактор -->
+    <div id="view-editor" hidden>
+      <div class="toolbar">
+        <button class="secondary" id="back-btn">← К списку</button>
+        <input type="text" id="pack-title" data-path="title" placeholder="Название пакета" maxlength="100">
+        <button id="save-btn">Сохранить</button>
+      </div>
+      <div id="validation-errors" class="error-list" hidden></div>
+      <div id="rounds"></div>
+      <button class="secondary" id="add-round">+ Раунд</button>
+    </div>
+  </main>
+
+  <script type="module" src="/packs/packs.js"></script>
+</body>
+</html>

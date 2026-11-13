@@ -75,7 +75,7 @@ function fillSettings(s) {
   $('set-false-start').checked = Boolean(s.falseStart);
 }
 
-$('save-settings').addEventListener('click', async () => {
+async function saveSettings() {
   try {
     const res = await call('settings:update', {
       picker: $('set-picker').value,
@@ -89,7 +89,13 @@ $('save-settings').addEventListener('click', async () => {
   } catch (e) {
     toast(e.message, 'error');
   }
-});
+}
+
+$('save-settings').addEventListener('click', saveSettings);
+// галочки и выбор применяем сразу, без кнопки — иначе легко забыть сохранить
+for (const id of ['set-picker', 'set-answer-time', 'set-buzz-timeout', 'set-show-question', 'set-false-start']) {
+  $(id).addEventListener('change', saveSettings);
+}
 
 $('start-btn').addEventListener('click', async () => {
   try {
@@ -299,6 +305,7 @@ function applyState(state) {
   S.phase = state.phase;
   S.players = state.players;
   S.settings = state.settings;
+  $('pack-title').textContent = state.packTitle ? `Пакет: ${state.packTitle}` : '';
   S.game = state.game;
   S.log = state.log || [];
   fillSettings(state.settings);

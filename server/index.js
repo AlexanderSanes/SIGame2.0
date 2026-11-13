@@ -6,7 +6,9 @@ import { config } from '../config.js';
 import { RoomManager } from './rooms.js';
 import { initSockets } from './sockets/index.js';
 import { createRoomsRouter } from './routes/rooms.js';
+import { createPacksRouter } from './routes/packs.js';
 import { createUploadRouter } from './media.js';
+import { seedPacks } from './packs.js';
 
 const app = express();
 app.set('trust proxy', true); // чтобы req.protocol/host были корректны за nginx
@@ -17,7 +19,9 @@ const io = new Server(server, {
 
 const rooms = new RoomManager();
 rooms.restore();
+seedPacks();
 
+app.use(createPacksRouter()); // до express.json(): у импорта пакетов свой лимит тела
 app.use(express.json());
 app.use(createRoomsRouter(rooms));
 app.use(createUploadRouter(rooms));

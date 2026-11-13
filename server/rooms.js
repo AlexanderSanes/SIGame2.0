@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { saveSnapshot, deleteSnapshot, loadSnapshots } from './db.js';
-import { TEST_PACK } from './testpack.js';
+import { getPack, getDefaultPack } from './packs.js';
 
 // Без похожих символов: 0, O, 1, I, L исключены
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -43,14 +43,17 @@ export class RoomManager {
     }
   }
 
-  createRoom() {
+  createRoom(packId = null) {
     let id;
     do {
       id = generateCode(config.roomCodeLength);
     } while (this.rooms.has(id));
 
+    const packData = getPack(packId) || getDefaultPack();
+    const pack = structuredClone(packData);
     const room = {
       id,
+      pack,
       hostToken: crypto.randomUUID(),
       hostSocketId: null,
       phase: 'lobby',
@@ -143,6 +146,7 @@ export class RoomManager {
     return {
       roomId: room.id,
       phase: room.phase,
+      packTitle: room.pack.title,
       settings: room.settings,
       players: this.publicPlayers(room),
       game: room.game ? this.publicGame(room, view) : null,
@@ -156,10 +160,10 @@ export class RoomManager {
 
   publicGame(room, view) {
     const g = room.game;
-    const round = TEST_PACK.rounds[g.roundIndex]; // undefined после game_over
+    const round = room.pack.rounds[g.roundIndex]; // undefined после game_over
     const state = {
       roundIndex: g.roundIndex,
-      roundsTotal: TEST_PACK.rounds.length,
+      roundsTotal: room.pack.rounds.length,
       roundTitle: round?.title ?? null,
       pickerId: g.pickerId,
       revealed: g.revealed,
@@ -200,7 +204,7 @@ export class RoomManager {
   roundMedia(room) {
     const g = room.game;
     if (!g) return [];
-    const round = TEST_PACK.rounds[g.roundIndex];
+    const round = room.pack.rounds[g.roundIndex];
     if (!round) return [];
     const urls = new Set();
     for (const theme of round.themes) {
@@ -233,6 +237,7 @@ export class RoomManager {
     return {
       id: room.id,
       hostToken: room.hostToken,
+      pack: room.pack,
       phase: room.phase,
       settings: room.settings,
       createdAt: room.createdAt,
@@ -263,6 +268,7 @@ export class RoomManager {
     const room = {
       id: data.id,
       hostToken: data.hostToken,
+      pack: data.pack?.rounds ? data.pack : structuredClone(getDefaultPack()),
       hostSocketId: null,
       // после рестарта сервера транзиентные фазы откатываем к показу вопроса
       phase: ['buzz', 'answer'].includes(data.phase) ? 'question' : data.phase,

@@ -12,8 +12,17 @@ db.exec(`
     room_id   TEXT PRIMARY KEY,
     data      TEXT NOT NULL,
     updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS packages (
+    id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL,
+    data       TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
   )
 `);
+
+export { db };
 
 const stmtSave = db.prepare(`
   INSERT INTO room_snapshots (room_id, data, updated_at) VALUES (?, ?, ?)
