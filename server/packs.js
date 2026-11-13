@@ -81,14 +81,15 @@ function humanPath(p) {
 // ---------- хранилище (SQLite) ----------
 
 const stmtList = db.prepare('SELECT id, title, created_at, updated_at FROM packages ORDER BY updated_at DESC');
+const stmtListData = db.prepare('SELECT id,title,data,created_at,updated_at FROM packages ORDER BY updated_at DESC');
 const stmtGet = db.prepare('SELECT id, title, data, created_at, updated_at FROM packages WHERE id = ?');
 const stmtInsert = db.prepare('INSERT INTO packages (id, title, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
 const stmtUpdate = db.prepare('UPDATE packages SET title = ?, data = ?, updated_at = ? WHERE id = ?');
 const stmtDelete = db.prepare('DELETE FROM packages WHERE id = ?');
 
 export function listPacks() {
-  return stmtList.all().map((row) => {
-    const data = JSON.parse(getRaw(row.id).data);
+  return stmtListData.all().map((row) => {
+    const data = JSON.parse(row.data);
     let themes = 0; let questions = 0;
     for (const r of data.rounds) {
       themes += r.themes.length;

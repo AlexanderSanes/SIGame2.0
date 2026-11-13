@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import fs from 'node:fs';
+const images=[];
+const source=fs.readFileSync(new URL('../client/shared/media.js',import.meta.url),'utf8').replace(/^import[^\n]*\n/,'').replaceAll('export function','function');
+const ctx=vm.createContext({Image:class{constructor(){images.push(this);}},Number,Set});
+vm.runInContext(source,ctx);
+ctx.preloadMedia(['/a.png','/b.png','/c.png','/d.png','/e.mp4','/f.wav']);
+assert.equal(images.length,3);console.log('PASS максимум три параллельные предзагрузки');
+images[0].onload();assert.equal(images.length,4);console.log('PASS освобождение слота запускает следующий файл');
+ctx.preloadMedia(['/a.png','/b.png']);assert.equal(images.length,4);console.log('PASS нет повторной загрузки изображений и массовой загрузки видео');
+const media={readyState:1,duration:20,currentTime:0,pause(){this.paused=true;},play(){this.paused=false;return Promise.resolve();}};
+ctx.applyMediaControl([media],'pause',12);assert.equal(media.currentTime,12);assert.equal(media.paused,true);console.log('PASS перемотка и пауза');
+ctx.applyMediaControl([media],'play',50);assert.equal(media.currentTime,20);assert.equal(media.paused,false);console.log('PASS позиция ограничена длительностью');

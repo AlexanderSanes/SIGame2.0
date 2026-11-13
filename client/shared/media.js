@@ -21,10 +21,13 @@ export function renderMedia(container, mediaList, { interactive = false, onContr
         preload: 'auto',
         playsinline: '',
       });
+      const volume=()=>{el.volume=Math.min(1,Math.max(0,Number(localStorage.getItem('sigame:media-volume') ?? 1)));};
+      volume();
       if (interactive) {
         el.controls = true;
-        el.addEventListener('play', () => onControl?.('play'));
-        el.addEventListener('pause', () => onControl?.('pause'));
+        el.addEventListener('play', () => onControl?.('play', el.currentTime));
+        el.addEventListener('pause', () => onControl?.('pause', el.currentTime));
+        el.addEventListener('seeked', () => onControl?.(el.paused ? 'pause' : 'play', el.currentTime));
       } else {
         el.loop = item.type === 'video'; // видео на табло крутим по кругу
         tryAutoplay(el, container);
@@ -64,21 +67,27 @@ function tryAutoplay(el, container) {
 }
 
 // Применить команду ведущего к отрендеренным аудио/видео
-export function applyMediaControl(players, action) {
+export function applyMediaControl(players, action, position = null) {
   for (const el of players) {
+    if (Number.isFinite(position)) {
+      const seek=()=>{try{el.currentTime=Math.min(position,Number.isFinite(el.duration)?el.duration:position);}catch{}};
+      if(el.readyState)seek();else el.addEventListener('loadedmetadata',seek,{once:true});
+    }
     if (action === 'play') el.play().catch(() => {});
     else if (action === 'pause') el.pause();
   }
 }
 
 // Предзагрузка медиа раунда, чтобы открытие вопроса было мгновенным
+const queue = []; const loaded = new Set(); let active = 0;
 export function preloadMedia(urls) {
   for (const url of urls || []) {
-    if (/\.(png|jpe?g|gif|webp)$/i.test(url)) {
-      const img = new Image();
-      img.src = url;
-    } else {
-      fetch(url, { cache: 'force-cache' }).catch(() => {});
-    }
+    if (!/\.(png|jpe?g|gif|webp)$/i.test(url) || loaded.has(url)) continue;
+    loaded.add(url); queue.push(url);
+  }
+  while (active < 3 && queue.length) {
+    const url=queue.shift(); active++; const img=new Image();
+    const done=()=>{active--;preloadMedia([]);};
+    img.onload=done; img.onerror=()=>{loaded.delete(url);done();}; img.src=url;
   }
 }

@@ -217,7 +217,11 @@ export function registerGameHandlers(io, socket, rooms) {
     if (!room) return done({ ok: false, error: 'Комната не найдена' });
     const action = payload?.action;
     if (!['play', 'pause'].includes(action)) return done({ ok: false, error: 'action: play|pause' });
-    io.to(room.id).emit('media:control', { action });
+    const position = payload.position;
+    if(position !== undefined && (!Number.isFinite(position)||position<0||position>86400))return done({ok:false,error:'Некорректная позиция медиа'});
+    const control = { action, ...(position === undefined ? {} : {position}), timestamp:Date.now() };
+    if(room.game){room.game.mediaControl=control;rooms.touch(room);}
+    io.to(room.id).emit('media:control', control);
     done({ ok: true });
   });
 

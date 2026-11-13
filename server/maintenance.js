@@ -30,10 +30,10 @@ export function cleanup(io, rooms, now = Date.now()) {
 }
 export function maintenance(io, rooms) {
   const snapshot = setInterval(() => {
-    try { rooms.flushAll(); } catch (e) { console.error('[snapshot]', e); }
+    try { const start=performance.now();rooms.flushAll();const durationMs=Math.round(performance.now()-start);if(durationMs>100)console.warn(JSON.stringify({event:'slow_snapshot',durationMs,rooms:rooms.rooms.size})); } catch (e) { console.error('[snapshot]', e); }
   }, config.snapshotIntervalMs);
   const sweep = setInterval(() => {
-    try { cleanup(io, rooms); } catch (e) { console.error('[cleanup]', e); }
+    try { const result=cleanup(io, rooms);if(result.closed||result.removed)console.info(JSON.stringify({event:'cleanup',...result})); } catch (e) { console.error('[cleanup]', e); }
   }, config.cleanupIntervalMs);
   snapshot.unref(); sweep.unref();
   return () => { clearInterval(snapshot); clearInterval(sweep); };
