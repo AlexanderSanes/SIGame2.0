@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Пакеты вопросов — Своя игра</title>
   <link rel="stylesheet" href="/shared/style.css">
-  <link rel="stylesheet" href="/packs/packs.css">
+  <link rel="stylesheet" href="/packs/packs.css"><link rel="stylesheet" href="/shared/game.css">
 </head>
 <body>
   <main class="packs-main">
@@ -31,7 +31,7 @@
         <input type="text" id="pack-title" data-path="title" placeholder="Название пакета" maxlength="100">
         <button id="save-btn">Сохранить</button>
       </div>
-      <div id="validation-errors" class="error-list" hidden></div>
+      <p id="draft-status" role="status"></p><button id="restore-draft" class="secondary" hidden>Восстановить черновик</button><div id="validation-errors" class="error-list" hidden></div>
       <div id="rounds"></div>
       <button class="secondary" id="add-round">+ Раунд</button>
     </div>

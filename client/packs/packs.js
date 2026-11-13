@@ -1,3 +1,4 @@
+import { renderMedia } from '/shared/media.js';
 import { h, toast } from '/shared/ui.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,6 +21,8 @@ async function api(method, url, body = undefined) {
 // ============================================================ список пакетов
 
 async function loadList() {
+  if(pack && JSON.stringify(pack)!==savedState){try{localStorage.setItem(draftKey(),JSON.stringify(pack));}catch{}}
+  if (pack && !$('view-editor').hidden && JSON.stringify(pack) !== savedState && !confirm('Есть несохранённые изменения. Перейти к списку? Черновик останется на этом устройстве.')) return;
   $('view-list').hidden = false;
   $('view-editor').hidden = true;
   const { packs } = await api('GET', '/api/packs');
@@ -61,6 +64,8 @@ $('create-pack').addEventListener('click', () => {
       themes: [{ title: 'Новая тема', questions: [{ price: 100, text: '', answer: '', type: 'normal', media: [], answerMedia: [] }] }],
     }],
   };
+  savedState = JSON.stringify(pack);
+  $('restore-draft').hidden = !localStorage.getItem(draftKey());
   $('view-list').hidden = true;
   $('view-editor').hidden = false;
   $('validation-errors').hidden = true;
@@ -86,6 +91,7 @@ $('import-input').addEventListener('change', async (e) => {
 
 // ============================================================ редактор
 
+let savedState = '';
 let pack = null; // { id, title, rounds: [...] }
 
 async function openEditor(id) {
@@ -100,6 +106,8 @@ async function openEditor(id) {
     }
   }
   pack.final ??= null;
+  savedState = JSON.stringify(pack);
+  $('restore-draft').hidden = !localStorage.getItem(draftKey());
   $('view-list').hidden = true;
   $('view-editor').hidden = false;
   $('validation-errors').hidden = true;
@@ -205,6 +213,7 @@ function renderRound(round, ri) {
     } }, '+ Тема'),
   );
 
+  block.append(...[-1,1].map(d=>h('button',{class:'secondary',onclick:()=>{const to=ri+d;if(to>=0&&to<pack.rounds.length){reorder(pack.rounds,ri,to);renderEditor();}}},d<0?'↑ Раунд':'↓ Раунд')));
   block.dataset.dndId = `r${ri}`;
   dnd(block, {
     onDrop: (fromId, toId) => {
@@ -240,6 +249,7 @@ function renderTheme(round, ri, theme, ti) {
     } }, '+ Вопрос'),
   );
 
+  block.append(...[-1,1].map(d=>h('button',{class:'secondary',onclick:()=>{const to=ti+d;if(to>=0&&to<round.themes.length){reorder(round.themes,ti,to);renderEditor();}}},d<0?'↑ Тема':'↓ Тема')));
   block.dataset.dndId = `t${ri}:${ti}`;
   dnd(block, {
     onDrop: (fromId, toId) => {
@@ -296,6 +306,9 @@ function renderQuestion(ri, ti, q, qi) {
     ),
   );
 
+  card.append(h('div', {class:'q-row'},
+    h('button',{class:'secondary',onclick:()=>previewQuestion(q)},'Предпросмотр'),
+    ...[-1,1].map(delta=>h('button',{class:'secondary', 'aria-label':delta<0?'Вопрос выше':'Вопрос ниже',onclick:()=>{const a=pack.rounds[ri].themes[ti].questions;const to=qi+delta;if(to>=0&&to<a.length){reorder(a,qi,to);renderEditor();}}},delta<0?'↑':'↓'))));
   card.dataset.dndId = `q${ri}:${ti}:${qi}`;
   dnd(card, {
     onDrop: (fromId, toId) => {
@@ -346,8 +359,15 @@ function mediaAdder(list, kinds, onChange) {
         return;
       }
       try {
-        const res = await fetch(`/api/upload?kind=${kind}`, { method: 'POST', body: file });
-        const data = await res.json();
+        const status=h('span',{},'0%'); const cancel=h('button',{class:'secondary'},'Отмена');box.append(status,cancel);
+        const data = await new Promise((resolve,reject)=>{
+          const xhr=new XMLHttpRequest();xhr.open('POST',`/api/upload?kind=${kind}`);
+          xhr.upload.onprogress=e=>{if(e.lengthComputable)status.textContent=`${Math.round(e.loaded/e.total*100)}%`;};
+          const done=()=>{status.remove();cancel.remove();};
+          cancel.addEventListener('click',()=>xhr.abort());
+          xhr.onload=()=>{done();try{resolve(JSON.parse(xhr.responseText));}catch{reject(Error('Ошибка ответа сервера'));}};
+          xhr.onerror=()=>{done();reject(Error('Ошибка сети'));};xhr.onabort=()=>{done();reject(Error('Загрузка отменена'));};xhr.send(file);
+        });
         if (!data.ok) throw new Error(data.error);
         list.push({ type: kind, src: data.url });
         onChange();
@@ -438,11 +458,16 @@ $('save-btn').addEventListener('click', async () => {
     return;
   }
   try {
+    const previousDraftKey=draftKey();
     const payload = { title: pack.title.trim(), rounds: pack.rounds, final: pack.final || null };
     const { pack: saved } = pack.id
       ? await api('PUT', `/api/packs/${pack.id}`, payload)
       : await api('POST', '/api/packs', payload);
     pack = saved;
+    savedState = JSON.stringify(pack);
+    localStorage.removeItem(previousDraftKey);
+    localStorage.removeItem(draftKey());
+    $('restore-draft').hidden = true;
     toast('Пакет сохранён');
     renderEditor();
   } catch (e) {
@@ -452,3 +477,25 @@ $('save-btn').addEventListener('click', async () => {
 });
 
 loadList();
+
+function draftKey(){ return `sigame:draft:${pack?.id || 'new'}`; }
+window.addEventListener('beforeunload',e=>{if(pack&&!$('view-editor').hidden&&JSON.stringify(pack)!==savedState){try{localStorage.setItem(draftKey(),JSON.stringify(pack));}catch{}e.preventDefault();e.returnValue='';}});
+setInterval(()=>{
+  if(!pack || $('view-editor').hidden)return;
+  const dirty=JSON.stringify(pack)!==savedState;
+  try { if(dirty)localStorage.setItem(draftKey(),JSON.stringify(pack));
+    $('draft-status').textContent=dirty?'Изменения не сохранены в пакет. Черновик сохранён на устройстве.':'Все изменения сохранены';
+  }catch{$('draft-status').textContent='Не удалось сохранить черновик: проверьте свободное место';}
+},1000);
+$('restore-draft').addEventListener('click',()=>{
+  try {const draft=JSON.parse(localStorage.getItem(draftKey()));if(!draft||!Array.isArray(draft.rounds))throw Error();pack=draft;renderEditor();$('restore-draft').hidden=true;}
+  catch{toast('Черновик недоступен','error');}
+});
+function previewQuestion(q){
+  const dialog=document.createElement('dialog');dialog.className='question-preview';
+  const media=h('div',{class:'q-media'});
+  dialog.append(h('h2',{},'Предпросмотр табло'),h('p',{class:'question-price'},String(q.price)),h('p',{class:'question-text'},q.text),media);
+  const players=renderMedia(media,q.media,{interactive:true});
+  dialog.append(h('button',{onclick:()=>dialog.close()},'Закрыть'));
+  dialog.addEventListener('close',()=>{players.forEach(p=>p.pause());dialog.remove();});document.body.append(dialog);dialog.showModal();
+}
