@@ -10,6 +10,7 @@ import { config } from '../config.js';
 import { RoomManager } from './rooms.js';
 import { initSockets } from './sockets/index.js';
 import { createRoomsRouter } from './routes/rooms.js';
+import { createAdminRouter, localAdmin } from './routes/admin.js';
 import { createPacksRouter } from './routes/packs.js';
 import { createUploadRouter } from './media.js';
 import { seedPacks } from './packs.js';
@@ -32,6 +33,8 @@ app.get('/healthz', (_req, res) => {
 
 app.use(createPacksRouter()); // до express.json(): у импорта пакетов свой лимит тела
 app.use(express.json());
+app.use(createAdminRouter(rooms, io));
+app.use('/admin', localAdmin);
 app.use(createRoomsRouter(rooms));
 app.use(createUploadRouter(rooms));
 app.use('/avatars', express.static(config.avatarsDir));

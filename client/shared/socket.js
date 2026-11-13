@@ -1,5 +1,9 @@
 // Требует, чтобы перед модулем был подключен /socket.io/socket.io.js (глобальный io)
 export const socket = window.io();
+socket.on('room:deleted', () => {
+  alert('Комната удалена администратором.');
+  window.location.href = '/';
+});
 
 // emit с ack в виде Promise; при ok:false кидает Error с текстом сервера
 export function call(event, payload) {

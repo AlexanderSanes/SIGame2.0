@@ -16,6 +16,6 @@ const server=fork(path.join(work,'server/index.js'),[],{cwd:work,env,silent:true
 async function run(name){console.log(`\n--- ${name} ---`);const p=spawn(process.execPath,[`test/${name}.mjs`],{cwd:work,env,stdio:'inherit'});const [code]=await once(p,'exit');if(code!==0)throw Error(`${name}: exit ${code}`);}
 try{
  let ready=false;for(let i=0;i<100;i++){try{if((await fetch(`http://localhost:${port}/healthz`)).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,50));}if(!ready)throw Error('Server timeout');
- for(const name of ['e2e','late-judge','game','host','media','packs','special','final-resume','ui-audit','settings','unlimited-answer','improvements','edge-audit','stability'])await run(name);
+ for(const name of ['e2e','late-judge','game','host','media','packs','special','final-resume','ui-audit','settings','unlimited-answer','improvements','edge-audit','stability','admin'])await run(name);
  console.log(`\nВсе проверки пройдены. Стенд: ${work}`);
 }finally{if(server.exitCode===null){const end=once(server,'exit');server.send('shutdown');await end;}}
