@@ -1,3 +1,5 @@
+import * as game from '../game.js';
+import { socketLimits } from '../security.js';
 import { registerPlayerHandlers } from './player.js';
 import { registerHostHandlers } from './host.js';
 import { registerGameHandlers } from './game.js';
@@ -6,6 +8,11 @@ import { broadcastLobby } from './helpers.js';
 
 export function initSockets(io, rooms) {
   io.on('connection', (socket) => {
+    socketLimits(socket);
+    socket.on('disconnect', () => {
+      const room = rooms.get(socket.data?.roomId);
+      if (room && room.hostSocketId === socket.id) { room.hostSocketId = null; rooms.touch(room); }
+    });
     // Единая точка авторизации обеих ролей (в т.ч. переподключение)
     socket.on('session:resume', (payload, ack) => {
       const reply = typeof ack === 'function' ? ack : () => {};
@@ -33,10 +40,11 @@ export function initSockets(io, rooms) {
           socket.join(room.id);
           if (player.role === 'spectator') socket.join(`${room.id}:full`);
           socket.data = { role: 'player', roomId: room.id, playerId: player.id };
+          game.handlePlayerReconnected(io, rooms, room, player.id);
           rooms.touch(room);
           broadcastLobby(io, rooms, room);
           const view = player.role === 'spectator' ? 'board' : 'player';
-          return reply({ ok: true, role: player.role || 'player', state: rooms.buildState(room, view) });
+          return reply({ ok: true, role: player.role || 'player', state: rooms.buildState(room, view, player.id) });
         }
 
         reply({ ok: false, error: 'Нужен hostToken или playerId + sessionToken' });

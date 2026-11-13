@@ -1,0 +1,28 @@
+[Unit]
+Description=SIGame browser quiz
+After=network.target
+
+[Service]
+Type=simple
+User=sigame
+Group=sigame
+WorkingDirectory=/opt/sigame
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=DATA_DIR=/var/lib/sigame
+EnvironmentFile=-/etc/sigame.env
+ExecStart=/usr/bin/node /opt/sigame/server/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+StateDirectory=sigame
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sigame
+
+[Install]
+WantedBy=multi-user.target

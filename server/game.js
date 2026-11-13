@@ -1,3 +1,4 @@
+import { config } from '../config.js';
 // Единственное место, где меняется room.phase. Допустимые переходы:
 const ALLOWED = {
   lobby: ['board'],                              // game:start
@@ -33,6 +34,7 @@ function clearAllTimers(room) {
   clearTimer(room, 'buzz');
   clearTimer(room, 'answer');
   clearTimer(room, 'final');
+  clearTimer(room, 'disconnect');
 }
 
 export function logAction(io, rooms, room, text) {
@@ -150,6 +152,7 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
+  g.disconnectedAnswer = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   rooms.touch(room);
 
@@ -322,6 +325,8 @@ export function judge(io, rooms, room, correct) {
 function applyVerdict(io, rooms, room, correct, { auto = false } = {}) {
   const g = room.game;
   if (room.phase !== 'answer' || !g.buzz.winnerId) return;
+  clearTimer(room, 'disconnect');
+  g.disconnectedAnswer = null;
   const winnerId = g.buzz.winnerId;
   const player = room.players.get(winnerId);
   if (!player) { // игрок удалён, пока шёл его ответ
@@ -425,6 +430,7 @@ function advance(io, rooms, room) {
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
+  g.disconnectedAnswer = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
 
   const roundUsed = g.used[g.roundIndex];
@@ -482,10 +488,10 @@ function finalEligible(room) {
 
 function emitFinalState(io, rooms, room) {
   const g = room.game;
-  const eligible = finalEligible(room);
+  const eligibleIds = g.final.eligibleIds || finalEligible(room).map((p) => p.id);
   io.to(room.id).emit('final:state', {
     stage: g.final.stage,
-    eligibleIds: eligible.map((p) => p.id),
+    eligibleIds,
     stakedIds: Object.keys(g.final.bets),
     answeredIds: Object.keys(g.final.answers),
     deadlineTs: g.deadlineTs,
@@ -496,8 +502,9 @@ function startFinal(io, rooms, room) {
   const g = room.game;
   const f = room.pack.final;
   g.finalPlayed = true;
-  g.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {} };
+  g.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {}, eligibleIds: finalEligible(room).map((p) => p.id) };
   g.question = { themeIdx: -1, qIdx: -1, price: 0, text: f.text, answer: f.answer, themeTitle: f.title, type: 'final', media: f.media || [], answerMedia: [] };
+  g.disconnectedAnswer = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.deadlineTs = null;
   transition(room, 'final');
@@ -513,7 +520,7 @@ export function finalStake(io, rooms, room, playerId, amount) {
   if (room.phase !== 'final' || g.final.stage !== 'stake') throw new Error('Сейчас ставки не принимаются');
   const player = room.players.get(playerId);
   if (!player?.connected || player.role === 'spectator') throw new Error('Игрок не найден');
-  if (player.score <= 0) throw new Error('В финале играют только с положительным счётом');
+  if (!(g.final.eligibleIds || finalEligible(room).map((p) => p.id)).includes(playerId)) throw new Error('В финале играют только с положительным счётом');
   const bet = Number.parseInt(amount, 10);
   if (!Number.isFinite(bet) || bet < 0 || bet > player.score) {
     throw new Error(`Ставка от 0 до ${player.score}`);
@@ -556,6 +563,7 @@ export function finalCloseAnswers(io, rooms, room) {
   const g = room.game;
   if (room.phase !== 'final' || g.final.stage !== 'answer') return;
   clearTimer(room, 'final');
+  clearTimer(room, 'disconnect');
   g.final.stage = 'judge';
   g.deadlineTs = null;
   rooms.touch(room);
@@ -641,6 +649,7 @@ export function undo(io, rooms, room) {
     g.pickerId = entry.prevPickerId;
     g.revealed = false;
     g.paused = false;
+    g.disconnectedAnswer = null;
     g.buzz = { open: false, winnerId: entry.playerId, lockedIds: new Set(entry.prevLockedIds) };
     transition(room, 'answer');
     g.deadlineTs = Date.now() + room.settings.answerTimeSec * 1000;
@@ -695,7 +704,10 @@ export function togglePause(io, rooms, room) {
     const left = g.deadlineTs - Date.now();
     if (room.phase === 'buzz') {
       room._timers.buzz = setTimeout(() => onBuzzTimeout(io, rooms, room), left);
+    } else if (!room.players.get(g.buzz.winnerId)?.connected) {
+      handlePlayerDisconnected(io, rooms, room, g.buzz.winnerId);
     } else {
+      g.disconnectedAnswer = null;
       room._timers.answer = setTimeout(() => applyVerdict(io, rooms, room, false, { auto: true }), left);
     }
   }
@@ -717,6 +729,7 @@ export function endRound(io, rooms, room) {
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
+  g.disconnectedAnswer = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.roundIndex += 1;
   logAction(io, rooms, room, 'Раунд завершён досрочно');
@@ -750,9 +763,66 @@ export function handlePlayerRemoved(io, rooms, room, playerId) {
     g.pickerId = next?.id ?? null;
   }
   if (room.phase === 'answer' && g.buzz.winnerId === playerId) {
+    clearTimer(room, 'disconnect');
+    g.disconnectedAnswer = null;
     clearTimer(room, 'answer');
     g.buzz.winnerId = null;
     resumeBuzzOrReveal(io, rooms, room);
   }
   rooms.touch(room);
+}
+
+
+// После перезапуска время простоя не съедает оставшееся игровое время.
+export function restoreTimers(io, rooms, room) {
+  const g = room.game;
+  if (!g || g.paused) return;
+  if (room.phase === 'answer') {
+    handlePlayerDisconnected(io, rooms, room, g.buzz.winnerId);
+  } else if (g.deadlineTs != null) {
+    const delay = Math.max(0, g.deadlineTs - Date.now());
+    if (room.phase === 'buzz') room._timers.buzz = setTimeout(() => onBuzzTimeout(io, rooms, room), delay);
+    if (room.phase === 'final' && g.final?.stage === 'answer') {
+      room._timers.final = setTimeout(() => finalCloseAnswers(io, rooms, room), delay);
+    }
+  }
+}
+
+export function handlePlayerDisconnected(io, rooms, room, playerId) {
+  const g = room.game;
+  if (room.phase !== 'answer' || g?.buzz.winnerId !== playerId || g.paused) return;
+  const remainingMs = g.disconnectedAnswer?.remainingMs ?? Math.max(0, (g.deadlineTs || Date.now()) - Date.now());
+  clearTimer(room, 'answer');
+  clearTimer(room, 'disconnect');
+  g.disconnectedAnswer = { playerId, remainingMs };
+  g.deadlineTs = Date.now() + config.disconnectGraceMs;
+  rooms.touch(room);
+  emitPhase(io, room);
+  room._timers.disconnect = setTimeout(() => {
+    room._timers.disconnect = null;
+    if (room.phase !== 'answer' || g.buzz.winnerId !== playerId) return;
+    g.disconnectedAnswer = null;
+    g.buzz.lockedIds.add(playerId);
+    g.buzz.winnerId = null;
+    logAction(io, rooms, room, 'Отвечающий отключился: ответ передан остальным без изменения счёта');
+    if (g.question.type && g.question.type !== 'normal') goToReveal(io, rooms, room);
+    else resumeBuzzOrReveal(io, rooms, room);
+  }, config.disconnectGraceMs);
+}
+
+export function handlePlayerReconnected(io, rooms, room, playerId) {
+  const g = room.game;
+  if (room.phase !== 'answer' || g?.disconnectedAnswer?.playerId !== playerId) return;
+  clearTimer(room, 'disconnect');
+  const remainingMs = g.disconnectedAnswer.remainingMs;
+  g.disconnectedAnswer = null;
+  if (g.paused) {
+    g.pausedRemainingMs = remainingMs;
+    rooms.touch(room);
+    return;
+  }
+  g.deadlineTs = Date.now() + remainingMs;
+  room._timers.answer = setTimeout(() => applyVerdict(io, rooms, room, false, { auto: true }), remainingMs);
+  rooms.touch(room);
+  emitPhase(io, room);
 }

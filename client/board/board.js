@@ -120,6 +120,12 @@ function applyState(state) {
   S.phase = state.phase;
   S.players = state.players;
   S.game = state.game;
+  S.standings = state.standings;
+  S.special = state.phase === 'final' && state.game?.final
+    ? { kind: 'final', ...state.game.final }
+    : state.phase === 'auction' && state.game?.auction
+      ? { kind: 'auction', ...state.game.auction }
+      : state.phase === 'cat' ? { kind: 'cat' } : null;
   preloadMedia(state.roundMedia);
   render();
 }

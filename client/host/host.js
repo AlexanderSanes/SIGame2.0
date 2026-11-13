@@ -352,6 +352,7 @@ function applyState(state) {
   S.settings = state.settings;
   $('pack-title').textContent = state.packTitle ? `Пакет: ${state.packTitle}` : '';
   S.game = state.game;
+  S.standings = state.standings;
   S.special = null;
   S.finalAnswers = null;
   if (state.phase === 'cat' && state.game?.cat) {

@@ -1,3 +1,4 @@
+import * as game from '../game.js';
 import { validateNick, saveAvatar } from '../avatars.js';
 import { broadcastLobby } from './helpers.js';
 
@@ -10,7 +11,7 @@ export function registerPlayerHandlers(io, socket, rooms) {
       if (!room) return reply({ ok: false, error: 'Комната не найдена' });
       if (room.phase !== 'lobby') return reply({ ok: false, error: 'Игра уже началась' });
 
-      const trimmedNick = (nick || '').trim();
+      const trimmedNick = typeof nick === 'string' ? nick.trim() : '';
       const nickError = validateNick(trimmedNick);
       if (nickError) return reply({ ok: false, error: nickError });
       if (rooms.isNickTaken(room, trimmedNick)) {
@@ -53,6 +54,7 @@ export function registerPlayerHandlers(io, socket, rooms) {
     const room = rooms.get(roomId);
     if (room) {
       rooms.removePlayer(room, playerId);
+      game.handlePlayerRemoved(io, rooms, room, playerId);
       broadcastLobby(io, rooms, room);
     }
     socket.leave(roomId);
@@ -69,6 +71,7 @@ export function registerPlayerHandlers(io, socket, rooms) {
     if (!player || player.socketId !== socket.id) return;
     player.connected = false;
     player.socketId = null;
+    game.handlePlayerDisconnected(io, rooms, room, playerId);
     rooms.touch(room);
     broadcastLobby(io, rooms, room);
   });

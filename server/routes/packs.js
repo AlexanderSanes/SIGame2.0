@@ -13,7 +13,7 @@ export function createPacksRouter() {
   });
 
   router.post('/api/packs', smallJson, (req, res) => {
-    const check = packs.validatePack({ title: req.body?.title, rounds: req.body?.rounds });
+    const check = packs.validatePack({ title: req.body?.title, rounds: req.body?.rounds, final: req.body?.final });
     if (!check.ok) return res.status(400).json({ ok: false, errors: check.errors });
     if (packs.titleTaken(check.data.title)) {
       return res.status(400).json({ ok: false, errors: [{ path: 'title', label: 'Пакет', message: 'Пакет с таким названием уже существует' }] });
@@ -31,7 +31,7 @@ export function createPacksRouter() {
     if (!packs.getPack(req.params.id)) {
       return res.status(404).json({ ok: false, error: 'Пакет не найден' });
     }
-    const check = packs.validatePack({ title: req.body?.title, rounds: req.body?.rounds });
+    const check = packs.validatePack({ title: req.body?.title, rounds: req.body?.rounds, final: req.body?.final });
     if (!check.ok) return res.status(400).json({ ok: false, errors: check.errors });
     if (packs.titleTaken(check.data.title, req.params.id)) {
       return res.status(400).json({ ok: false, errors: [{ path: 'title', label: 'Пакет', message: 'Пакет с таким названием уже существует' }] });

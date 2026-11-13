@@ -1,3 +1,5 @@
+import { sniff } from './media.js';
+import { safeMediaSource } from './security.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,14 +12,13 @@ import { TEST_PACK, TEST_PACK_SPECIAL } from './testpack.js';
 
 const mediaItem = z.object({
   type: z.enum(['image', 'audio', 'video', 'youtube']),
-  src: z.string().min(1, 'Пустая ссылка на медиа'),
+  src: z.string().refine(safeMediaSource, 'Недопустимая ссылка на медиа'),
 });
 
 const question = z.object({
   price: z.number().int('Цена должна быть целым числом').positive('Цена должна быть положительной'),
-  text: z.string().default(''),
-  answer: z.string().min(1, 'Нет правильного ответа'),
-  // пометка для этапа 6, игровая логика пока не различает типы
+  text: z.string().max(20000).default(''),
+  answer: z.string().trim().min(1, 'Нет правильного ответа').max(5000),
   type: z.enum(['normal', 'cat', 'auction']).default('normal'),
   media: z.array(mediaItem).default([]),
   answerMedia: z.array(mediaItem).default([]),
@@ -26,23 +27,23 @@ const question = z.object({
 });
 
 const theme = z.object({
-  title: z.string().min(1, 'Нет названия темы'),
+  title: z.string().trim().max(200).min(1, 'Нет названия темы'),
   questions: z.array(question).min(1, 'В теме нет вопросов'),
 });
 
 const round = z.object({
-  title: z.string().min(1, 'Нет названия раунда'),
+  title: z.string().trim().max(200).min(1, 'Нет названия раунда'),
   themes: z.array(theme).min(1, 'В раунде нет тем'),
 });
 
 export const packSchema = z.object({
-  title: z.string().min(1, 'Нет названия пакета'),
+  title: z.string().trim().max(200).min(1, 'Нет названия пакета'),
   rounds: z.array(round).min(1, 'В пакете нет раундов'),
   // финальный раунд (необязателен): одна тема, ставки, письменные ответы
   final: z.object({
-    title: z.string().min(1, 'Нет названия финальной темы'),
-    text: z.string().default(''),
-    answer: z.string().min(1, 'Нет правильного ответа'),
+    title: z.string().trim().max(200).min(1, 'Нет названия финальной темы'),
+    text: z.string().max(20000).default(''),
+    answer: z.string().trim().min(1, 'Нет правильного ответа').max(5000),
     media: z.array(mediaItem).default([]),
   }).refine((f) => f.text.trim().length > 0 || f.media.length > 0, {
     message: 'Нужен текст вопроса или медиа',
@@ -191,11 +192,26 @@ export function importPack(payload) {
   }
   const check = validatePack({ title: payload.title, rounds: payload.rounds, final: payload.final ?? null });
   if (!check.ok) return { ok: false, errors: check.errors };
-  fs.mkdirSync(config.uploadsDir, { recursive: true });
+  const pending = [];
   for (const [url, b64] of Object.entries(payload.files || {})) {
-    if (!url.startsWith('/uploads/')) continue;
+    if (!/^\/uploads\/[a-f0-9]{24}\.(png|jpg|gif|webp|mp3|wav|ogg|mp4|webm)$/.test(url)
+        || typeof b64 !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(b64)) {
+      return { ok: false, errors: [{ label: 'Медиа', message: 'Недопустимый файл в пакете' }] };
+    }
     const buf = Buffer.from(b64, 'base64');
-    const filePath = path.join(config.uploadsDir, path.basename(url));
+    const name = path.basename(url);
+    if (crypto.createHash('sha256').update(buf).digest('hex').slice(0, 24) !== name.split('.')[0]) {
+      return { ok: false, errors: [{ label: 'Медиа', message: 'Хэш файла не совпадает' }] };
+    }
+    const sig = sniff(buf);
+    if (!sig || sig.ext !== name.split('.')[1] || buf.length > config.uploadLimits[sig.kind]) {
+      return { ok: false, errors: [{ label: 'Медиа', message: 'Недопустимый формат или размер файла' }] };
+    }
+    pending.push([name, buf]);
+  }
+  fs.mkdirSync(config.uploadsDir, { recursive: true });
+  for (const [name, buf] of pending) {
+    const filePath = path.join(config.uploadsDir, name);
     if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, buf);
   }
   const id = crypto.randomUUID();

@@ -1,3 +1,4 @@
+import { config } from '../../config.js';
 import { Router } from 'express';
 import QRCode from 'qrcode';
 import { getLanIp } from '../net.js';
@@ -5,6 +6,7 @@ import { getLanIp } from '../net.js';
 // Базовый URL, по которому комната доступна игрокам с других устройств:
 // если ведущий открыл страницу через localhost — подменяем на LAN-IP сервера
 export function externalBaseUrl(req) {
+  if (config.publicUrl) return config.publicUrl;
   const host = req.get('host'); // hostname:port
   const hostname = req.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {

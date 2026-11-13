@@ -74,7 +74,7 @@ export class RoomManager {
   }
 
   get(roomId) {
-    return this.rooms.get((roomId || '').toUpperCase());
+    return typeof roomId === 'string' ? this.rooms.get(roomId.toUpperCase()) : undefined;
   }
 
   addPlayer(room, { nick, avatarUrl }) {
@@ -115,6 +115,9 @@ export class RoomManager {
   }
 
   deleteRoom(room) {
+    clearTimeout(this._snapshotTimers.get(room.id));
+    this._snapshotTimers.delete(room.id);
+    for (const timer of Object.values(room._timers)) clearTimeout(timer);
     this.rooms.delete(room.id);
     deleteSnapshot(room.id);
   }
@@ -144,8 +147,8 @@ export class RoomManager {
   }
 
   // view: 'host' (всё + ответ), 'board' (текст вопроса, без ответа), 'player' (зависит от настройки)
-  buildState(room, view = 'player') {
-    return {
+  buildState(room, view = 'player', playerId = null) {
+    const state = {
       roomId: room.id,
       phase: room.phase,
       packTitle: room.pack.title,
@@ -154,10 +157,29 @@ export class RoomManager {
       game: room.game ? this.publicGame(room, view) : null,
       log: room.log.slice(-50),
       canUndo: room.history.length > 0,
+      standings: room.phase === 'game_over' ? this.standings(room) : null,
       // предзагрузка: игроку имеет смысл отдавать, только если он увидит вопросы
       roundMedia: (view !== 'player' || room.settings.showQuestionToPlayers)
         ? this.roundMedia(room) : [],
     };
+    if (view === 'player' && playerId && state.game) {
+      if (state.game.final) {
+        state.game.final.myStake = room.game.final.bets[playerId] ?? null;
+        state.game.final.myAnswer = room.game.final.answers[playerId] ?? null;
+      }
+      if (state.game.auction) state.game.auction.myBet = room.game.auction.bets[playerId]?.amount ?? null;
+    }
+    return state;
+  }
+
+  standings(room) {
+    let prev = null; let place = 0;
+    return this.publicPlayers(room).filter((p) => p.role !== 'spectator')
+      .sort((a, b) => b.score - a.score).map((p, i) => {
+        if (p.score !== prev) place = i + 1;
+        prev = p.score;
+        return { ...p, place };
+      });
   }
 
   publicGame(room, view) {
@@ -193,22 +215,28 @@ export class RoomManager {
       const withText = { ...base, themeTitle: g.question.themeTitle, text: g.question.text, media };
       if (view === 'host') {
         state.question = { ...withText, answer: g.question.answer, answerMedia: g.question.answerMedia || [] };
-      } else if (view === 'board' || room.settings.showQuestionToPlayers) {
+      } else if (!['cat', 'auction'].includes(room.phase)
+          && !(room.phase === 'final' && g.final?.stage === 'stake')
+          && (view === 'board' || room.settings.showQuestionToPlayers || room.phase === 'final')) {
         state.question = withText;
       } else {
-        state.question = base;
+        state.question = ['cat', 'auction'].includes(room.phase) || (room.phase === 'final' && g.final?.stage === 'stake') ? null : base;
       }
+    }
+    if (g.revealed && state.question) {
+      state.question.answer = g.question.answer;
+      state.question.answerMedia = g.question.answerMedia || [];
     }
     if (room.phase === 'cat') state.cat = { basePrice: g.question?.price };
     if (room.phase === 'auction' && g.auction) {
       state.auction = { minBet: g.auction.minBet, betCount: Object.keys(g.auction.bets).length,
-        playersCount: [...room.players.values()].filter((p) => p.connected && p.role !== 'spectator').length };
+        playersCount: [...room.players.values()].filter((p) => p.role !== 'spectator').length };
     }
     if (room.phase === 'final' && g.final) {
       state.final = {
         title: room.pack.final?.title ?? g.question?.themeTitle ?? '',
         stage: g.final.stage,
-        eligibleIds: [...room.players.values()].filter((p) => p.role !== 'spectator' && p.score > 0).map((p) => p.id),
+        eligibleIds: g.final.eligibleIds || [...room.players.values()].filter((p) => p.role !== 'spectator' && p.score > 0).map((p) => p.id),
         stakedIds: Object.keys(g.final.bets),
         answeredIds: Object.keys(g.final.answers),
       };
@@ -256,10 +284,19 @@ export class RoomManager {
     const timer = setTimeout(() => {
       this._snapshotTimers.delete(room.id);
       if (this.rooms.has(room.id)) {
-        saveSnapshot(room.id, this._serialize(room));
+        try { saveSnapshot(room.id, this._serialize(room)); }
+        catch (error) { console.error('[snapshot]', error); }
       }
     }, 250);
     this._snapshotTimers.set(room.id, timer);
+  }
+
+  flushAll() {
+    for (const room of this.rooms.values()) {
+      clearTimeout(this._snapshotTimers.get(room.id));
+      this._snapshotTimers.delete(room.id);
+      saveSnapshot(room.id, this._serialize(room));
+    }
   }
 
   _serialize(room) {
@@ -282,14 +319,11 @@ export class RoomManager {
       })),
       history: room.history,
       log: room.log.slice(-50),
+      snapshotVersion: 2,
       game: room.game && {
-        roundIndex: room.game.roundIndex,
-        pickerId: room.game.pickerId,
-        used: room.game.used,
-        question: room.game.question,
-        revealed: room.game.revealed,
-        lockedIds: [...room.game.buzz.lockedIds],
-        finalPlayed: room.game.finalPlayed || false,
+        ...room.game,
+        remainingMs: room.game.deadlineTs == null ? null : Math.max(0, room.game.deadlineTs - Date.now()),
+        buzz: { ...room.game.buzz, lockedIds: [...room.game.buzz.lockedIds] },
       },
     };
   }
@@ -301,9 +335,10 @@ export class RoomManager {
       // старые снапшоты без pack — берём пакет по умолчанию
       pack: data.pack?.rounds ? { ...data.pack, final: data.pack.final ?? null } : (() => { const p = getDefaultPack(); return { id: p.id, title: p.title, rounds: p.rounds, final: p.final ?? null }; })(),
       hostSocketId: null,
+      // Снимки v2 сохраняют фазы; старые мигрируют к безопасной точке.
       // после рестарта сервера транзиентные фазы откатываем:
       // buzz/answer → показ вопроса, cat/auction → обратно к полю, final → сбор ставок заново
-      phase: ['buzz', 'answer'].includes(data.phase) ? 'question'
+      phase: data.snapshotVersion === 2 ? data.phase : ['buzz', 'answer'].includes(data.phase) ? 'question'
         : ['cat', 'auction'].includes(data.phase) ? 'board'
         : data.phase,
       settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
@@ -319,7 +354,11 @@ export class RoomManager {
       room.players.set(p.id, { role: 'player', ...p, connected: false, socketId: null });
     }
     if (data.game) {
-      room.game = {
+      room.game = data.snapshotVersion === 2 ? {
+        ...data.game,
+        deadlineTs: data.game.remainingMs == null ? null : Date.now() + data.game.remainingMs,
+        buzz: { ...data.game.buzz, lockedIds: new Set(data.game.buzz?.lockedIds || []) },
+      } : {
         roundIndex: data.game.roundIndex,
         pickerId: data.game.pickerId,
         used: data.game.used,
@@ -330,7 +369,7 @@ export class RoomManager {
         buzz: { open: false, winnerId: null, lockedIds: new Set(data.game.lockedIds || []) },
         finalPlayed: data.game.finalPlayed || false,
       };
-      if (data.phase === 'final') {
+      if (data.phase === 'final' && data.snapshotVersion !== 2) {
         room.game.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {} };
       }
     }
