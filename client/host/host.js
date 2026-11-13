@@ -15,6 +15,7 @@ const emptyHint = $('empty-hint');
 
 let countdownTimer = null;
 let lastTick = null;
+let judgePending = false;
 let lastMediaKey = null;      // какой вопрос уже отрендерен в #q-media
 let lastAnswerRendered = false; // картинка ответа уже показана
 
@@ -181,8 +182,18 @@ function renderMediaList() {
 // ---------- Кнопки управления ----------
 const act = (event, payload = {}) => () => call(event, payload).catch((e) => toast(e.message, 'error'));
 $('buzz-open-btn').addEventListener('click', act('buzz:open'));
-$('correct-btn').addEventListener('click', act('answer:judge', { correct: true }));
-$('wrong-btn').addEventListener('click', act('answer:judge', { correct: false }));
+async function judgeAnswer(correct) {
+  if (judgePending || S.phase !== 'answer') return;
+  const g = S.game;
+  const payload = { correct, playerId: g.buzz.winnerId, questionId: g.questionId, answerAttemptId: g.answerAttemptId };
+  judgePending = true;
+  renderControls();
+  try { await call('answer:judge', payload); }
+  catch (e) { toast(e.message, 'error'); }
+  finally { judgePending = false; renderControls(); }
+}
+$('correct-btn').addEventListener('click', () => judgeAnswer(true));
+$('wrong-btn').addEventListener('click', () => judgeAnswer(false));
 $('reveal-btn').addEventListener('click', act('question:reveal'));
 $('close-question-btn').addEventListener('click', act('question:close'));
 $('skip-btn').addEventListener('click', act('question:skip'));
@@ -230,6 +241,8 @@ socket.on('game:phase', (p) => {
   ensureGame();
   S.phase = p.phase;
   S.game.roundIndex = p.roundIndex;
+  S.game.questionId = p.questionId;
+  S.game.answerAttemptId = p.answerAttemptId;
   S.game.pickerId = p.pickerId;
   S.game.buzz.winnerId = p.winnerId;
   S.game.revealed = p.revealed;
@@ -494,7 +507,7 @@ function renderQuestion() {
   card.hidden = false;
   $('q-price').textContent = `${g.question.themeTitle || ''} · ${g.question.price}`;
   $('q-text').textContent = g.question.text || '';
-  $('q-answer').textContent = g.question.answer && (S.phase === 'question' || S.phase === 'reveal' || S.game.revealed)
+  $('q-answer').textContent = g.question.answer
     ? `Ответ: ${g.question.answer}` : '';
 
   // медиа рендерим один раз на вопрос, чтобы не дёргать воспроизведение
@@ -623,6 +636,8 @@ function renderControls() {
   $('round-end-btn').hidden = !['board', 'question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(S.phase);
   $('buzz-open-btn').hidden = S.phase !== 'question';
   $('correct-btn').hidden = S.phase !== 'answer';
+  $('correct-btn').disabled = judgePending;
+  $('wrong-btn').disabled = judgePending;
   $('wrong-btn').hidden = S.phase !== 'answer';
   $('reveal-btn').hidden = S.phase !== 'reveal' || g?.revealed;
   $('close-question-btn').hidden = S.phase !== 'reveal' || !g?.revealed;

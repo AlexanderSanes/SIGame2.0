@@ -92,7 +92,7 @@ export function registerGameHandlers(io, socket, rooms) {
       if (!isHost()) return done({ ok: false, error: 'Только ведущий судит ответы' });
       const room = roomOf();
       if (!room) return done({ ok: false, error: 'Комната не найдена' });
-      game.judge(io, rooms, room, Boolean(payload?.correct));
+      game.judge(io, rooms, room, payload?.correct, payload);
       done({ ok: true });
     } catch (e) {
       done({ ok: false, error: e.message });
@@ -134,7 +134,7 @@ export function registerGameHandlers(io, socket, rooms) {
       if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
       const room = roomOf();
       if (!room) return done({ ok: false, error: 'Комната не найдена' });
-      const delta = Number.parseInt(payload?.delta, 10);
+      const delta = game.strictInteger(payload?.delta);
       if (!Number.isFinite(delta) || delta === 0) return done({ ok: false, error: 'Сумма должна быть ненулевым числом' });
       if (Math.abs(delta) > 100000) return done({ ok: false, error: 'Слишком большая сумма' });
       game.adjustScore(io, rooms, room, payload?.playerId, delta);
@@ -327,7 +327,7 @@ export function registerGameHandlers(io, socket, rooms) {
       if (!isHost()) return done({ ok: false, error: 'Только ведущий судит' });
       const room = roomOf();
       if (!room) return done({ ok: false, error: 'Комната не найдена' });
-      game.finalJudge(io, rooms, room, payload?.playerId, Boolean(payload?.correct));
+      game.finalJudge(io, rooms, room, payload?.playerId, payload?.correct);
       done({ ok: true });
     } catch (e) {
       done({ ok: false, error: e.message });

@@ -8,7 +8,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dir = fs.mkdtempSync(path.join(fs.realpathSync.native(process.env.TEST_TMPDIR || os.tmpdir()), 'sigame-stability-'));

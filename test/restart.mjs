@@ -1,7 +1,7 @@
 // Тест восстановления после перезапуска сервера:
 // 1) создаёт комнату и игрока, сохраняет токены в файл;
 // 2) после перезапуска сервера проверяет session:resume обеих ролей.
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

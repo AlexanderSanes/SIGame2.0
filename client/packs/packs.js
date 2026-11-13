@@ -162,10 +162,11 @@ function renderFinal() {
 function dnd(el, { onDrop }) {
   el.draggable = true;
   el.addEventListener('dragstart', (e) => {
+    e.stopPropagation();
     e.dataTransfer.setData('text/plain', el.dataset.dndId);
     el.classList.add('dragging');
   });
-  el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  el.addEventListener('dragend', (e) => { e.stopPropagation(); el.classList.remove('dragging'); });
   el.addEventListener('dragover', (e) => e.preventDefault());
   el.addEventListener('drop', (e) => {
     e.preventDefault();

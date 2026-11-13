@@ -1,6 +1,6 @@
 // Проверка: вердикт ведущего ПОСЛЕ авто-«неверно» по таймеру ответа
 // не должен менять счёт второй раз и должен вернуть ошибку.
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 
 const URL = 'http://localhost:3000';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

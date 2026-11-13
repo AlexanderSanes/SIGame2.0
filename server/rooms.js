@@ -190,6 +190,8 @@ export class RoomManager {
       roundsTotal: room.pack.rounds.length,
       roundTitle: round?.title ?? null,
       pickerId: g.pickerId,
+      questionId: g.question?.id ?? null,
+      answerAttemptId: g.answerAttemptId ?? null,
       revealed: g.revealed,
       paused: Boolean(g.paused),
       deadlineTs: g.deadlineTs,
@@ -373,6 +375,8 @@ export class RoomManager {
         room.game.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {} };
       }
     }
+    if (room.game?.question && !room.game.question.id) room.game.question.id = crypto.randomUUID();
+    if (room.phase === 'answer' && !room.game.answerAttemptId) room.game.answerAttemptId = crypto.randomUUID();
     return room;
   }
 }

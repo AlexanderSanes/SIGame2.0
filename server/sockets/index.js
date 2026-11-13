@@ -1,4 +1,4 @@
-import * as game from '../game.js';
+import { bindSession } from './session.js';
 import { socketLimits } from '../security.js';
 import { registerPlayerHandlers } from './player.js';
 import { registerHostHandlers } from './host.js';
@@ -25,22 +25,14 @@ export function initSockets(io, rooms) {
           if (hostToken !== room.hostToken) {
             return reply({ ok: false, error: 'Неверный токен ведущего' });
           }
-          socket.join(room.id);
-          socket.join(`${room.id}:full`);
-          room.hostSocketId = socket.id;
-          socket.data = { role: 'host', roomId: room.id };
+          bindSession(io, socket, rooms, room, 'host');
           return reply({ ok: true, role: 'host', state: rooms.buildState(room, 'host') });
         }
 
         if (playerId && sessionToken) {
           const player = rooms.findPlayerByToken(room, playerId, sessionToken);
           if (!player) return reply({ ok: false, error: 'Сессия не найдена' });
-          player.connected = true;
-          player.socketId = socket.id;
-          socket.join(room.id);
-          if (player.role === 'spectator') socket.join(`${room.id}:full`);
-          socket.data = { role: 'player', roomId: room.id, playerId: player.id };
-          game.handlePlayerReconnected(io, rooms, room, player.id);
+          bindSession(io, socket, rooms, room, 'player', player.id);
           rooms.touch(room);
           broadcastLobby(io, rooms, room);
           const view = player.role === 'spectator' ? 'board' : 'player';

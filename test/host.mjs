@@ -1,4 +1,4 @@
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 
 const BASE = `http://localhost:${process.env.PORT || 3000}`;
 

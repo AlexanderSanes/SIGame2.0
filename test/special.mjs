@@ -1,5 +1,5 @@
 // Этап 6: кот в мешке, аукцион, финальный раунд, реакции — включая краевые случаи
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 
 const BASE = 'http://localhost:3000';
 const PACK = 'test-pack-special';

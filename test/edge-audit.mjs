@@ -8,7 +8,7 @@ import net from 'node:net';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigame-edge-audit-'));
 const listener = net.createServer(); listener.listen(0,'127.0.0.1'); await once(listener,'listening');
@@ -51,8 +51,33 @@ try{
  await test('final-undo',async()=>{const c=await setup();await final(c);await ok(c.host,'final:go');await ok(c.host,'final:go');await ok(c.host,'final:judge',{playerId:c.players[0].playerId,correct:true});await ok(c.host,'score:undo');const s=await c.state();const r=await call(c.host,'final:judge',{playerId:c.players[0].playerId,correct:false});check('final-undo','undo финального вердикта позволяет исправить решение',r.ok,{response:r,verdict:s.game.final.entries[0].verdict,score:s.players[0].score});});
  await test('late-verdict',async()=>{const c=await setup();await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await ok(c.host,'buzz:open');await ok(c.players[0].s,'buzz:press');await ok(c.host,'answer:judge',{correct:false});await ok(c.players[1].s,'buzz:press');const r=await call(c.host,'answer:judge',{correct:true,playerId:c.players[0].playerId,themeIdx:999,qIdx:999});const s=await c.state();check('late-verdict','устаревший вердикт старому игроку не судит нового',!r.ok&&s.phase==='answer'&&s.players.find(p=>p.id===c.players[1].playerId).score===0,{response:r,phase:s.phase,scores:s.players.map(p=>p.score)});});
  await test('spectator-leave',async()=>{const c=await setup();await ok(c.host,'player:setRole',{playerId:c.players[0].playerId,role:'spectator'});await ok(c.players[0].s,'player:leave');await c.start();let leaked=null;c.players[0].s.on('question:show',q=>{leaked=q;});await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await sleep(100);check('spectator-leave','вышедший зритель больше не получает вопросы',leaked===null,{received:leaked});});
- await test('cross-room',async()=>{const c=await setup(1);const other=await setup(0);await ok(c.players[0].s,'room:join',{roomId:other.auth.roomId,nick:'Перешёл'});let leaked=null;c.players[0].s.on('question:show',q=>{leaked=q;});await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await sleep(100);check('cross-room','переход в другую комнату удаляет старые подписки',leaked===null,{received:leaked});});
+ await test('cross-room',async()=>{const c=await setup(2);const other=await setup(0);await ok(c.players[0].s,'room:join',{roomId:other.auth.roomId,nick:'Перешёл'});let leaked=null;c.players[0].s.on('question:show',q=>{leaked=q;});await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await sleep(100);check('cross-room','переход в другую комнату удаляет старые подписки',leaked===null,{received:leaked});});
  await test('fractional-bet',async()=>{const c=await setup();await c.start();await ok(c.host,'board:select',{themeIdx:1,qIdx:0});const r=await call(c.players[0].s,'auction:bet',{amount:'100xyz'});check('fractional-bet','некорректная строка ставки отклонена',!r.ok,{response:r});});
+ await test('attempt-identity',async()=>{
+  const c=await setup();await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await ok(c.host,'buzz:open');await ok(c.players[0].s,'buzz:press');
+  const before=await c.state();const old={correct:true,playerId:c.players[0].playerId,questionId:before.game.questionId,answerAttemptId:before.game.answerAttemptId};
+  await ok(c.host,'answer:judge',{correct:false});await ok(c.players[1].s,'buzz:press');
+  let r=await call(c.host,'answer:judge',old);check('old-attempt-id','старый ID попытки отклонён после ребуза',!r.ok);
+  r=await call(c.host,'answer:judge',{correct:true,answerAttemptId:null,questionId:null});check('missing-attempt-id','вердикт без идентификатора отклонён',!r.ok);
+  const second=await c.state();const previous={correct:true,playerId:c.players[1].playerId,questionId:second.game.questionId,answerAttemptId:second.game.answerAttemptId};
+  await ok(c.host,'answer:judge',{correct:true});await ok(c.host,'score:undo');
+  r=await call(c.host,'answer:judge',previous);check('undo-new-attempt','после undo тот же игрок получает новый ID попытки',!r.ok&&(await c.state()).phase==='answer');
+  await ok(c.host,'answer:judge',{correct:true});
+ });
+ await test('undo-last-question',async()=>{
+  const c=await setup(1,pack.id);await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await ok(c.host,'buzz:open');await ok(c.players[0].s,'buzz:press');await ok(c.host,'answer:judge',{correct:true});await ok(c.host,'score:undo');
+  let state=await c.state();check('undo-before-final-stakes','последний вердикт можно отменить до ставок финала',state.phase==='answer'&&state.players[0].score===0&&!state.game.board.themes[0].questions[0].used);
+  await ok(c.host,'answer:judge',{correct:true});state=await c.state();check('repeat-final-after-undo','после повторного ответа финал запускается снова',state.phase==='final'&&state.players[0].score===100);
+ });
+ await test('all-profile-sockets',async()=>{
+  const c=await setup();const p=c.players[0];const extra=await connect();await ok(extra,'session:resume',{roomId:c.auth.roomId,playerId:p.playerId,sessionToken:p.sessionToken});
+  await ok(c.host,'player:setRole',{playerId:p.playerId,role:'spectator'});await ok(c.host,'player:setRole',{playerId:p.playerId,role:'player'});
+  let first=null,second=null;p.s.on('question:show',q=>first=q);extra.on('question:show',q=>second=q);await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await sleep(50);
+  check('role-all-tabs','возврат из зрителей скрывает вопрос во всех вкладках',first&&!first.text&&second&&!second.text);
+  await ok(c.host,'player:kick',{playerId:p.playerId});first=null;second=null;await ok(c.host,'question:skip');await ok(c.host,'board:select',{themeIdx:0,qIdx:2});await sleep(50);
+  check('kick-all-tabs','кик снимает подписки со всех вкладок профиля',first===null&&second===null);
+  check('revoked-old-socket','старая вкладка после кика лишена роли игрока',!(await call(p.s,'buzz:press')).ok);
+ });
  await test('load-50',async()=>{const c=await setup(50,'test-pack');await c.start();await ok(c.host,'board:select',{themeIdx:0,qIdx:0});await ok(c.host,'buzz:open');const start=performance.now();const race=await Promise.all(c.players.map(p=>call(p.s,'buzz:press')));metrics.race50Ms=+(performance.now()-start).toFixed(2);check('load-50','гонка 50 клиентов даёт одного победителя',race.filter(r=>r.accepted).length===1,{winners:race.filter(r=>r.accepted).length,durationMs:metrics.race50Ms});});
  await test('rtt',async()=>{const c=await setup(1);const times=[];for(let i=0;i<150;i++){const start=performance.now();await c.state();times.push(performance.now()-start);}times.sort((a,b)=>a-b);metrics.stateRTT={p50:+times[75].toFixed(2),p95:+times[142].toFixed(2),max:+times.at(-1).toFixed(2),samples:times.length};check('rtt','150 последовательных запросов состояния завершены',true,metrics.stateRTT);});
  check('server-alive','после всех ошибочных запросов сервер жив',(await fetch(BASE+'/healthz')).ok);

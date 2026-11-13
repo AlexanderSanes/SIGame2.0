@@ -44,7 +44,8 @@ export function muteButton() {
   const btn = document.createElement('button');
   btn.className = 'mute-btn';
   const sync = () => { btn.textContent = isMuted() ? '🔇' : '🔊'; };
-  btn.addEventListener('click', () => { sync(); if (!isMuted()) playSound('tick'); });
+  btn.addEventListener('click', () => { toggleMute(); sync(); if (!isMuted()) playSound('tick'); });
+  window.addEventListener?.('storage', (event) => { if (event.key === MUTE_KEY) sync(); });
   sync();
   return btn;
 }

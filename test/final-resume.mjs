@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 
 const BASE = process.env.TEST_BASE || 'http://localhost:3000';
 const sockets = [];
@@ -41,7 +41,7 @@ function hostUI(state) {
     return elements.get(id);
   };
   const S = {};
-  const ctx = vm.createContext({ S, $, h: node, fillSettings() {}, preloadMedia() {},
+  const ctx = vm.createContext({ S, $, h: node, judgePending: false, fillSettings() {}, preloadMedia() {},
     renderLog() {}, render() {}, call() {}, toast() {}, state });
   vm.runInContext(section('function applyState(state)', 'function render()')
     + section('function renderSpecial()', '// Список игроков с управлением'), ctx);

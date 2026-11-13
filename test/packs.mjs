@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { io } from 'socket.io-client';
+import { io } from './socket-client.mjs';
 
 const BASE = 'http://localhost:3000';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));

@@ -1,3 +1,4 @@
+import { detachSession } from './session.js';
 import { broadcastLobby } from './helpers.js';
 import * as game from '../game.js';
 
@@ -22,12 +23,10 @@ export function registerHostHandlers(io, socket, rooms) {
     const player = room.players.get(playerId);
     if (!player) return reply({ ok: false, error: 'Игрок не найден' });
 
-    if (player.socketId) {
-      const kickedSocket = io.sockets.sockets.get(player.socketId);
-      if (kickedSocket) {
-        kickedSocket.emit('room:kicked', { reason: 'Ведущий удалил вас из комнаты' });
-        kickedSocket.leave(room.id);
-        kickedSocket.data = {};
+    for (const member of io.sockets.sockets.values()) {
+      if (member.data?.roomId === room.id && member.data?.playerId === playerId) {
+        member.emit('room:kicked', { reason: 'Ведущий удалил вас из комнаты' });
+        detachSession(io, member, rooms, { notify: false, disconnectPlayer: false });
       }
     }
     rooms.removePlayer(room, playerId);
@@ -57,8 +56,8 @@ export function registerHostHandlers(io, socket, rooms) {
     rooms.touch(room);
 
     // зритель видит вопрос как табло: пересаживаем его сокет в «полную» комнату
-    const playerSocket = player.socketId && io.sockets.sockets.get(player.socketId);
-    if (playerSocket) {
+    for (const playerSocket of io.sockets.sockets.values()) {
+      if (playerSocket.data?.roomId !== room.id || playerSocket.data?.playerId !== player.id) continue;
       if (newRole === 'spectator') playerSocket.join(fullRoom(room.id));
       else playerSocket.leave(fullRoom(room.id));
       playerSocket.emit('player:role', { role: newRole });

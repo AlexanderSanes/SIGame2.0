@@ -1,23 +1,28 @@
+import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 // Единственное место, где меняется room.phase. Допустимые переходы:
 const ALLOWED = {
   lobby: ['board'],                              // game:start
   board: ['question', 'cat', 'auction', 'final', 'answer', 'game_over'], // answer — отмена вердикта (undo)
-  question: ['buzz', 'board', 'game_over'],      // board/game_over — пропуск вопроса / стоп игры
-  cat: ['answer', 'board', 'game_over'],         // кот в мешке: назначение → ответ
-  auction: ['answer', 'board', 'game_over'],     // аукцион: ставки → ответ
-  buzz: ['answer', 'reveal', 'board', 'game_over'], // buzz:press | таймаут | пропуск/стоп
-  answer: ['buzz', 'reveal', 'board', 'game_over'], // вердикт ведущего
-  reveal: ['board', 'game_over', 'answer'],      // question:close | undo
-  final: ['game_over'],                          // финал завершается только концом игры
-  game_over: ['answer'],                         // undo из финала
+  question: ['buzz', 'board', 'game_over', 'final'],      // board/game_over — пропуск вопроса / стоп игры
+  cat: ['answer', 'board', 'game_over', 'final'],         // кот в мешке: назначение → ответ
+  auction: ['answer', 'board', 'game_over', 'final'],     // аукцион: ставки → ответ
+  buzz: ['answer', 'reveal', 'board', 'game_over', 'final'], // buzz:press | таймаут | пропуск/стоп
+  answer: ['buzz', 'reveal', 'board', 'game_over', 'final'], // вердикт ведущего
+  reveal: ['board', 'game_over', 'answer', 'final'],      // question:close | undo
+  final: ['game_over', 'answer'],                          // answer — undo последнего обычного ответа до ставок
+  game_over: ['answer', 'final'],                         // undo обычного или финального вердикта
 };
 
-export function transition(room, to) {
+function assertTransition(room, to) {
   if (room.phase === to) return; // no-op (например, досрочный конец раунда из фазы board)
   if (!(ALLOWED[room.phase] || []).includes(to)) {
     throw new Error(`Недопустимый переход фазы: ${room.phase} → ${to}`);
   }
+}
+
+export function transition(room, to) {
+  assertTransition(room, to);
   room.phase = to;
 }
 
@@ -50,6 +55,8 @@ function emitPhase(io, room) {
     roundIndex: room.game?.roundIndex ?? null,
     pickerId: room.game?.pickerId ?? null,
     winnerId: room.game?.buzz.winnerId ?? null,
+    questionId: room.game?.question?.id ?? null,
+    answerAttemptId: room.game?.answerAttemptId ?? null,
     revealed: room.game?.revealed ?? false,
     paused: room.game?.paused ?? false,
     deadlineTs: room.game?.deadlineTs ?? null,
@@ -89,6 +96,7 @@ function sendQuestionToHost(io, room) {
 function emitQuestion(io, room) {
   const g = room.game;
   const payload = {
+    questionId: g.question.id,
     themeIdx: g.question.themeIdx,
     qIdx: g.question.qIdx,
     themeTitle: g.question.themeTitle,
@@ -118,13 +126,13 @@ function emitRoundMedia(io, rooms, room) {
 // ---------- публичные действия ----------
 
 export function startGame(io, rooms, room) {
+  const pool = [...room.players.values()].filter((p) => p.connected && p.role !== 'spectator');
+  if (!pool.length) throw new Error('Нужен хотя бы один подключённый игрок');
   transition(room, 'board');
-  const players = [...room.players.values()].filter((p) => p.role !== 'spectator');
-  const connected = players.filter((p) => p.connected);
-  const pool = connected.length ? connected : players;
   room.game = {
     roundIndex: 0,
     pickerId: pool[Math.floor(Math.random() * pool.length)].id,
+    answerAttemptId: null,
     used: room.pack.rounds.map((r) => r.themes.map((t) => t.questions.map(() => false))),
     question: null,
     revealed: false,
@@ -142,17 +150,20 @@ export function startGame(io, rooms, room) {
 
 export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   const g = room.game;
+  if (!Number.isInteger(themeIdx) || !Number.isInteger(qIdx) || themeIdx < 0 || qIdx < 0) throw new Error('Некорректная ячейка');
   const theme = room.pack.rounds[g.roundIndex].themes[themeIdx];
   const q = theme?.questions[qIdx];
   if (!q) throw new Error('Ячейка не найдена');
   if (g.used[g.roundIndex][themeIdx][qIdx]) throw new Error('Ячейка уже сыграна');
 
   const type = q.type || 'normal';
-  g.question = { themeIdx, qIdx, price: q.price, text: q.text, answer: q.answer, themeTitle: theme.title, type, media: q.media || [], answerMedia: q.answerMedia || [] };
+  assertTransition(room, type === 'cat' ? 'cat' : type === 'auction' ? 'auction' : 'question');
+  g.question = { id: randomUUID(), themeIdx, qIdx, price: q.price, text: q.text, answer: q.answer, themeTitle: theme.title, type, media: q.media || [], answerMedia: q.answerMedia || [] };
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
   g.disconnectedAnswer = null;
+  g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   rooms.touch(room);
 
@@ -184,22 +195,29 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   if (byHost) logAction(io, rooms, room, `Вопрос выбран ведущим: ${theme.title}, ${q.price}`);
 }
 
+function armAnswerTimer(io, rooms, room, delay) {
+  clearTimer(room, 'answer');
+  const attemptId = room.game.answerAttemptId;
+  room._timers.answer = setTimeout(() => {
+    if (room.game.answerAttemptId === attemptId) applyVerdict(io, rooms, room, false, { auto: true });
+  }, delay);
+}
+
 // Ответ без кнопки: назначенный игрок сразу в фазу answer, таймер как обычно
 function startDirectAnswer(io, rooms, room, playerId) {
   const g = room.game;
   const player = room.players.get(playerId);
   g.buzz.winnerId = playerId;
+  g.answerAttemptId = randomUUID();
   transition(room, 'answer');
   g.deadlineTs = Date.now() + room.settings.answerTimeSec * 1000;
   rooms.touch(room);
-  room._timers.answer = setTimeout(
-    () => applyVerdict(io, rooms, room, false, { auto: true }),
-    room.settings.answerTimeSec * 1000,
-  );
+  armAnswerTimer(io, rooms, room, room.settings.answerTimeSec * 1000);
   emitQuestion(io, room);
   emitBuzzState(io, room);
   io.to(room.id).emit('buzz:winner', { playerId, nick: player.nick });
   emitPhase(io, room);
+  if (!player.connected) handlePlayerDisconnected(io, rooms, room, playerId);
 }
 
 // ---------- кот в мешке ----------
@@ -209,7 +227,7 @@ export function catAssign(io, rooms, room, playerId, price) {
   if (room.phase !== 'cat') throw new Error('Сейчас нет кота в мешке');
   const player = room.players.get(playerId);
   if (!player || player.role === 'spectator') throw new Error('Игрок не найден');
-  const p = Number.parseInt(price, 10);
+  const p = strictInteger(price);
   if (!Number.isFinite(p) || p <= 0 || p > 100000) throw new Error('Цена: положительное целое');
   g.question.price = p;
   logAction(io, rooms, room, `Кот передан: ${player.nick}, цена ${p}`);
@@ -231,7 +249,7 @@ export function auctionBet(io, rooms, room, playerId, amount) {
   if (!player?.connected || player.role === 'spectator') throw new Error('Игрок не найден');
   const min = g.auction.minBet;
   const max = Math.max(player.score, min); // при счёте ниже цены ячейки можно поставить только минимум
-  const bet = Number.parseInt(amount, 10);
+  const bet = strictInteger(amount);
   if (!Number.isFinite(bet) || bet < min || bet > max) {
     throw new Error(`Ставка от ${min} до ${max}`);
   }
@@ -245,7 +263,10 @@ export function auctionBet(io, rooms, room, playerId, amount) {
 export function auctionClose(io, rooms, room) {
   const g = room.game;
   if (room.phase !== 'auction') throw new Error('Аукцион не идёт');
-  const entries = Object.entries(g.auction.bets);
+  const entries = Object.entries(g.auction.bets).filter(([id]) => {
+    const p = room.players.get(id);
+    return p && p.role !== 'spectator';
+  });
   io.to(room.id).emit('auction:result', {
     bets: entries.map(([id, b]) => ({ playerId: id, amount: b.amount })),
   });
@@ -302,13 +323,11 @@ export function pressBuzz(io, rooms, room, playerId) {
   clearTimer(room, 'buzz');
   g.buzz.winnerId = playerId;
   g.buzz.open = false;
+  g.answerAttemptId = randomUUID();
   transition(room, 'answer');
   g.deadlineTs = Date.now() + room.settings.answerTimeSec * 1000;
   rooms.touch(room);
-  room._timers.answer = setTimeout(
-    () => applyVerdict(io, rooms, room, false, { auto: true }),
-    room.settings.answerTimeSec * 1000,
-  );
+  armAnswerTimer(io, rooms, room, room.settings.answerTimeSec * 1000);
 
   emitBuzzState(io, room);
   io.to(room.id).emit('buzz:winner', { playerId, nick: player.nick });
@@ -316,8 +335,15 @@ export function pressBuzz(io, rooms, room, playerId) {
   return { accepted: true };
 }
 
-export function judge(io, rooms, room, correct) {
+export function judge(io, rooms, room, correct, expected = {}) {
   if (room.phase !== 'answer') throw new Error('Сейчас некому судить');
+  if (typeof correct !== 'boolean') throw new Error('Вердикт должен быть true или false');
+  const g = room.game;
+  if (!expected.questionId || expected.questionId !== g.question.id
+      || !expected.answerAttemptId || expected.answerAttemptId !== g.answerAttemptId
+      || expected.playerId !== g.buzz.winnerId) {
+    throw new Error('Попытка ответа устарела — обновите состояние вопроса');
+  }
   clearTimer(room, 'answer');
   applyVerdict(io, rooms, room, correct);
 }
@@ -343,6 +369,7 @@ function applyVerdict(io, rooms, room, correct, { auto = false } = {}) {
     question: { ...g.question },
     prevPickerId: g.pickerId,
     prevRoundIndex: g.roundIndex,
+    prevFinalPlayed: Boolean(g.finalPlayed),
     prevLockedIds: [...g.buzz.lockedIds],
   });
 
@@ -425,36 +452,30 @@ export function closeQuestion(io, rooms, room) {
 // Общий финал вопроса: ячейка сыграна, дальше board / следующий раунд / конец игры
 function advance(io, rooms, room) {
   const g = room.game;
-  if (g.question) g.used[g.roundIndex][g.question.themeIdx][g.question.qIdx] = true;
+  const q = g.question;
+  const roundDone = g.used[g.roundIndex].every((theme, t) => theme.every((used, qi) =>
+    used || (q && q.themeIdx === t && q.qIdx === qi)));
+  const nextRound = g.roundIndex + (roundDone ? 1 : 0);
+  const nextPhase = nextRound < room.pack.rounds.length ? 'board'
+    : room.pack.final && !g.finalPlayed ? 'final' : 'game_over';
+  assertTransition(room, nextPhase);
+  if (q) g.used[g.roundIndex][q.themeIdx][q.qIdx] = true;
   g.question = null;
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
   g.disconnectedAnswer = null;
+  g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
-
-  const roundUsed = g.used[g.roundIndex];
-  const roundDone = roundUsed.every((theme) => theme.every(Boolean));
-  let roundChanged = false;
-  if (roundDone) {
-    g.roundIndex += 1;
-    if (g.roundIndex >= room.pack.rounds.length) {
-      if (room.pack.final && !g.finalPlayed) {
-        startFinal(io, rooms, room);
-        return;
-      }
-      finishGame(io, rooms, room);
-      return;
-    }
-    roundChanged = true;
-    logAction(io, rooms, room, `Раунд ${g.roundIndex + 1}: ${room.pack.rounds[g.roundIndex].title}`);
-  }
-
+  g.roundIndex = nextRound;
+  if (nextPhase === 'final') { startFinal(io, rooms, room); return; }
+  if (nextPhase === 'game_over') { finishGame(io, rooms, room); return; }
   transition(room, 'board');
   rooms.touch(room);
+  if (roundDone) logAction(io, rooms, room, `Раунд ${g.roundIndex + 1}: ${room.pack.rounds[g.roundIndex].title}`);
   emitBoard(io, rooms, room);
   emitPhase(io, room);
-  if (roundChanged) emitRoundMedia(io, rooms, room);
+  if (roundDone) emitRoundMedia(io, rooms, room);
 }
 
 function finishGame(io, rooms, room) {
@@ -499,15 +520,16 @@ function emitFinalState(io, rooms, room) {
 }
 
 function startFinal(io, rooms, room) {
+  transition(room, 'final');
   const g = room.game;
   const f = room.pack.final;
   g.finalPlayed = true;
   g.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {}, eligibleIds: finalEligible(room).map((p) => p.id) };
-  g.question = { themeIdx: -1, qIdx: -1, price: 0, text: f.text, answer: f.answer, themeTitle: f.title, type: 'final', media: f.media || [], answerMedia: [] };
+  g.question = { id: randomUUID(), themeIdx: -1, qIdx: -1, price: 0, text: f.text, answer: f.answer, themeTitle: f.title, type: 'final', media: f.media || [], answerMedia: [] };
   g.disconnectedAnswer = null;
+  g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.deadlineTs = null;
-  transition(room, 'final');
   rooms.touch(room);
   io.to(room.id).emit('final:start', { title: f.title });
   emitFinalState(io, rooms, room);
@@ -521,7 +543,7 @@ export function finalStake(io, rooms, room, playerId, amount) {
   const player = room.players.get(playerId);
   if (!player?.connected || player.role === 'spectator') throw new Error('Игрок не найден');
   if (!(g.final.eligibleIds || finalEligible(room).map((p) => p.id)).includes(playerId)) throw new Error('В финале играют только с положительным счётом');
-  const bet = Number.parseInt(amount, 10);
+  const bet = strictInteger(amount);
   if (!Number.isFinite(bet) || bet < 0 || bet > player.score) {
     throw new Error(`Ставка от 0 до ${player.score}`);
   }
@@ -592,7 +614,9 @@ export function finalJudge(io, rooms, room, playerId, correct) {
   if (bet === undefined) throw new Error('Игрок не участвовал в финале');
   if (g.final.verdicts[playerId] !== undefined) throw new Error('Вердикт уже вынесен');
   const player = room.players.get(playerId);
-  rooms.pushHistory(room, { type: 'adjust', playerId, prevScore: player.score });
+  if (!player || player.role === 'spectator') throw new Error('Участник финала больше не играет');
+  if (typeof correct !== 'boolean') throw new Error('Вердикт должен быть true или false');
+  rooms.pushHistory(room, { type: 'finalVerdict', playerId, prevScore: player.score });
   player.score += correct ? bet : -bet;
   g.final.verdicts[playerId] = Boolean(correct);
   rooms.touch(room);
@@ -612,6 +636,13 @@ export function finalJudge(io, rooms, room, playerId, correct) {
 
 // ---------- пульт ведущего ----------
 
+export function strictInteger(value) {
+  if (typeof value === 'string' && !/^-?\d+$/.test(value)) return NaN;
+  if (typeof value !== 'number' && typeof value !== 'string') return NaN;
+  const n = Number(value);
+  return Number.isSafeInteger(n) ? n : NaN;
+}
+
 export function adjustScore(io, rooms, room, playerId, delta) {
   const player = room.players.get(playerId);
   if (!player) throw new Error('Игрок не найден');
@@ -628,12 +659,20 @@ export function adjustScore(io, rooms, room, playerId, delta) {
 export function undo(io, rooms, room) {
   const entry = room.history[room.history.length - 1];
   if (!entry) throw new Error('История пуста — нечего отменять');
-  if (entry.type === 'verdict' && !['board', 'buzz', 'reveal', 'game_over'].includes(room.phase)) {
+  const untouchedFinal = room.phase === 'final' && room.game.final?.stage === 'stake' && !Object.keys(room.game.final.bets).length;
+  if (entry.type === 'verdict' && !['board', 'buzz', 'reveal', 'game_over'].includes(room.phase) && !untouchedFinal) {
     throw new Error('Отмена вердикта возможна только сразу после него');
+  }
+  if (entry.type === 'finalVerdict' && !['final', 'game_over'].includes(room.phase)) throw new Error('Финал уже не активен');
+  if (entry.type === 'verdict') {
+    const player = room.players.get(entry.playerId);
+    if (!player || player.role === 'spectator') throw new Error('Отвечающий больше не участвует в игре');
+    assertTransition(room, 'answer');
   }
   room.history.pop();
 
-  clearAllTimers(room);
+  // Ручная корректировка не меняет игровую попытку и её таймеры.
+  if (entry.type === 'verdict') clearAllTimers(room);
   const player = room.players.get(entry.playerId);
   if (player) {
     player.score = entry.prevScore;
@@ -644,24 +683,34 @@ export function undo(io, rooms, room) {
   if (entry.type === 'verdict') {
     const g = room.game;
     g.roundIndex = entry.prevRoundIndex;
+    g.finalPlayed = entry.prevFinalPlayed || false;
+    g.final = null;
     g.used[entry.prevRoundIndex][entry.question.themeIdx][entry.question.qIdx] = false;
-    g.question = entry.question;
+    g.question = { ...entry.question, id: entry.question.id || randomUUID() };
     g.pickerId = entry.prevPickerId;
     g.revealed = false;
     g.paused = false;
     g.disconnectedAnswer = null;
+    g.answerAttemptId = randomUUID();
     g.buzz = { open: false, winnerId: entry.playerId, lockedIds: new Set(entry.prevLockedIds) };
     transition(room, 'answer');
     g.deadlineTs = Date.now() + room.settings.answerTimeSec * 1000;
     rooms.touch(room);
-    room._timers.answer = setTimeout(
-      () => applyVerdict(io, rooms, room, false, { auto: true }),
-      room.settings.answerTimeSec * 1000,
-    );
+    armAnswerTimer(io, rooms, room, room.settings.answerTimeSec * 1000);
     emitBoard(io, rooms, room);
     emitQuestion(io, room);
     emitBuzzState(io, room);
     if (player) io.to(room.id).emit('buzz:winner', { playerId: entry.playerId, nick: player.nick });
+    emitPhase(io, room);
+  }
+  if (entry.type === 'finalVerdict') {
+    delete room.game.final.verdicts[entry.playerId];
+    if (room.phase === 'game_over') {
+      transition(room, 'final');
+      io.to(room.id).emit('final:start', { title: room.pack.final.title });
+    }
+    emitFinalState(io, rooms, room);
+    sendFinalAnswersToHost(io, room);
     emitPhase(io, room);
   }
   logAction(io, rooms, room, `Отмена: ${player?.nick || '?'} → счёт ${entry.prevScore}`);
@@ -708,7 +757,7 @@ export function togglePause(io, rooms, room) {
       handlePlayerDisconnected(io, rooms, room, g.buzz.winnerId);
     } else {
       g.disconnectedAnswer = null;
-      room._timers.answer = setTimeout(() => applyVerdict(io, rooms, room, false, { auto: true }), left);
+      armAnswerTimer(io, rooms, room, left);
     }
   }
   rooms.touch(room);
@@ -723,6 +772,10 @@ export function endRound(io, rooms, room) {
   if (room.phase === 'final') throw new Error('В финале используйте «Завершить игру»');
   if (!['board', 'question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(room.phase)
       || !g.used[g.roundIndex]) throw new Error('Сейчас нельзя завершить раунд');
+  const nextRound = g.roundIndex + 1;
+  const nextPhase = nextRound < room.pack.rounds.length ? 'board'
+    : room.pack.final && !g.finalPlayed ? 'final' : 'game_over';
+  assertTransition(room, nextPhase);
   clearAllTimers(room);
   g.used[g.roundIndex] = g.used[g.roundIndex].map((theme) => theme.map(() => true));
   g.question = null;
@@ -730,6 +783,7 @@ export function endRound(io, rooms, room) {
   g.paused = false;
   g.deadlineTs = null;
   g.disconnectedAnswer = null;
+  g.answerAttemptId = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   g.roundIndex += 1;
   logAction(io, rooms, room, 'Раунд завершён досрочно');
@@ -758,6 +812,17 @@ export function endGame(io, rooms, room) {
 export function handlePlayerRemoved(io, rooms, room, playerId) {
   const g = room.game;
   if (!g) return;
+  room.history = room.history.filter((e) => e.playerId !== playerId || (room.players.has(playerId) && e.type === 'adjust'));
+  if (g.auction) { delete g.auction.bets[playerId]; emitAuctionState(io, rooms, room); }
+  if (g.final && room.phase === 'final') {
+    g.final.eligibleIds = (g.final.eligibleIds || finalEligible(room).map((p) => p.id)).filter((id) => id !== playerId);
+    delete g.final.bets[playerId];
+    delete g.final.answers[playerId];
+    delete g.final.verdicts[playerId];
+    room.history = room.history.filter((e) => !(e.type === 'finalVerdict' && e.playerId === playerId));
+    emitFinalState(io, rooms, room);
+    if (g.final.stage === 'judge') sendFinalAnswersToHost(io, room);
+  }
   if (g.pickerId === playerId) {
     const next = [...room.players.values()].find((p) => p.connected && p.role !== 'spectator');
     g.pickerId = next?.id ?? null;
@@ -767,9 +832,11 @@ export function handlePlayerRemoved(io, rooms, room, playerId) {
     g.disconnectedAnswer = null;
     clearTimer(room, 'answer');
     g.buzz.winnerId = null;
-    resumeBuzzOrReveal(io, rooms, room);
+    if (g.question.type && g.question.type !== 'normal') goToReveal(io, rooms, room);
+    else resumeBuzzOrReveal(io, rooms, room);
   }
   rooms.touch(room);
+  emitPhase(io, room);
 }
 
 
@@ -822,7 +889,7 @@ export function handlePlayerReconnected(io, rooms, room, playerId) {
     return;
   }
   g.deadlineTs = Date.now() + remainingMs;
-  room._timers.answer = setTimeout(() => applyVerdict(io, rooms, room, false, { auto: true }), remainingMs);
+  armAnswerTimer(io, rooms, room, remainingMs);
   rooms.touch(room);
   emitPhase(io, room);
 }

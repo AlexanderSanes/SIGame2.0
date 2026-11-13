@@ -304,6 +304,12 @@ socket.on('game:over', ({ standings }) => {
   render();
 });
 
+socket.on('session:replaced', ({ reason }) => {
+  myId = null;
+  hideBuzz();
+  showGone(reason);
+});
+
 socket.on('room:kicked', ({ reason }) => {
   localStorage.removeItem(storageKey);
   myId = null;

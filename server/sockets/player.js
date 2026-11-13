@@ -1,3 +1,4 @@
+import { bindSession, detachSession } from './session.js';
 import * as game from '../game.js';
 import { validateNick, saveAvatar } from '../avatars.js';
 import { broadcastLobby } from './helpers.js';
@@ -28,9 +29,7 @@ export function registerPlayerHandlers(io, socket, rooms) {
         }
       }
 
-      socket.join(room.id);
-      socket.data = { role: 'player', roomId: room.id, playerId: player.id };
-      player.socketId = socket.id;
+      bindSession(io, socket, rooms, room, 'player', player.id);
       rooms.touch(room);
 
       broadcastLobby(io, rooms, room);
@@ -51,14 +50,7 @@ export function registerPlayerHandlers(io, socket, rooms) {
     const reply = typeof ack === 'function' ? ack : () => {};
     const { role, roomId, playerId } = socket.data || {};
     if (role !== 'player') return reply({ ok: false, error: 'Вы не игрок этой комнаты' });
-    const room = rooms.get(roomId);
-    if (room) {
-      rooms.removePlayer(room, playerId);
-      game.handlePlayerRemoved(io, rooms, room, playerId);
-      broadcastLobby(io, rooms, room);
-    }
-    socket.leave(roomId);
-    socket.data = {};
+    detachSession(io, socket, rooms, { removePlayer: true });
     reply({ ok: true });
   });
 
@@ -69,9 +61,10 @@ export function registerPlayerHandlers(io, socket, rooms) {
     if (!room) return;
     const player = room.players.get(playerId);
     if (!player || player.socketId !== socket.id) return;
-    player.connected = false;
-    player.socketId = null;
-    game.handlePlayerDisconnected(io, rooms, room, playerId);
+    const remaining = [...io.sockets.sockets.values()].find((s) => s.connected && s.data?.roomId === roomId && s.data?.playerId === playerId);
+    player.connected = Boolean(remaining);
+    player.socketId = remaining?.id ?? null;
+    if (!remaining) game.handlePlayerDisconnected(io, rooms, room, playerId);
     rooms.touch(room);
     broadcastLobby(io, rooms, room);
   });
