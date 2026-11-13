@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { db } from './db.js';
-import { TEST_PACK } from './testpack.js';
+import { TEST_PACK, TEST_PACK_SPECIAL } from './testpack.js';
 
 // ---------- zod-схема пакета ----------
 
@@ -211,6 +211,11 @@ export function seedPacks() {
     const now = Date.now();
     const normalized = packSchema.parse({ title: TEST_PACK.title, rounds: TEST_PACK.rounds });
     stmtInsert.run(TEST_PACK.id, normalized.title, JSON.stringify({ rounds: normalized.rounds, final: normalized.final }), now, now);
+  }
+  if (!getRaw(TEST_PACK_SPECIAL.id)) {
+    const now = Date.now();
+    const normalized = packSchema.parse({ title: TEST_PACK_SPECIAL.title, rounds: TEST_PACK_SPECIAL.rounds, final: TEST_PACK_SPECIAL.final });
+    stmtInsert.run(TEST_PACK_SPECIAL.id, normalized.title, JSON.stringify({ rounds: normalized.rounds, final: normalized.final }), now, now);
   }
 }
 

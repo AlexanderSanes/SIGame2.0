@@ -49,8 +49,10 @@ export class RoomManager {
       id = generateCode(config.roomCodeLength);
     } while (this.rooms.has(id));
 
+    // снапшот пакета копируется в комнату: правки пакета после создания игру не затрагивают
     const packData = getPack(packId) || getDefaultPack();
-    const pack = structuredClone(packData);
+    const pack = { id: packData.id, title: packData.title, rounds: structuredClone(packData.rounds), final: structuredClone(packData.final ?? null) };
+
     const room = {
       id,
       pack,
@@ -186,7 +188,7 @@ export class RoomManager {
       question: null,
     };
     if (g.question) {
-      const base = { themeIdx: g.question.themeIdx, qIdx: g.question.qIdx, price: g.question.price };
+      const base = { themeIdx: g.question.themeIdx, qIdx: g.question.qIdx, price: g.question.price, type: g.question.type || 'normal' };
       const media = g.question.media || [];
       const withText = { ...base, themeTitle: g.question.themeTitle, text: g.question.text, media };
       if (view === 'host') {
@@ -197,6 +199,26 @@ export class RoomManager {
         state.question = base;
       }
     }
+    if (room.phase === 'auction' && g.auction) {
+      state.auction = { minBet: g.auction.minBet, betCount: Object.keys(g.auction.bets).length };
+    }
+    if (room.phase === 'final' && g.final) {
+      state.final = {
+        stage: g.final.stage,
+        eligibleIds: [...room.players.values()].filter((p) => p.role !== 'spectator' && p.score > 0).map((p) => p.id),
+        stakedIds: Object.keys(g.final.bets),
+        answeredIds: Object.keys(g.final.answers),
+      };
+      if (view === 'host' && g.final.stage === 'judge') {
+        state.final.entries = Object.entries(g.final.bets).map(([pid, bet]) => ({
+          playerId: pid,
+          nick: room.players.get(pid)?.nick ?? '?',
+          bet,
+          text: g.final.answers[pid] ?? null,
+          verdict: g.final.verdicts[pid] ?? null,
+        }));
+      }
+    }
     return state;
   }
 
@@ -205,14 +227,18 @@ export class RoomManager {
     const g = room.game;
     if (!g) return [];
     const round = room.pack.rounds[g.roundIndex];
-    if (!round) return [];
     const urls = new Set();
-    for (const theme of round.themes) {
-      for (const q of theme.questions) {
-        for (const m of [...(q.media || []), ...(q.answerMedia || [])]) {
-          if (m.type !== 'youtube' && m.src) urls.add(m.src);
+    if (round) {
+      for (const theme of round.themes) {
+        for (const q of theme.questions) {
+          for (const m of [...(q.media || []), ...(q.answerMedia || [])]) {
+            if (m.type !== 'youtube' && m.src) urls.add(m.src);
+          }
         }
       }
+    }
+    for (const m of room.pack.final?.media || []) {
+      if (m.type !== 'youtube' && m.src) urls.add(m.src);
     }
     return [...urls];
   }
@@ -260,6 +286,7 @@ export class RoomManager {
         question: room.game.question,
         revealed: room.game.revealed,
         lockedIds: [...room.game.buzz.lockedIds],
+        finalPlayed: room.game.finalPlayed || false,
       },
     };
   }
@@ -268,10 +295,14 @@ export class RoomManager {
     const room = {
       id: data.id,
       hostToken: data.hostToken,
-      pack: data.pack?.rounds ? data.pack : structuredClone(getDefaultPack()),
+      // старые снапшоты без pack — берём пакет по умолчанию
+      pack: data.pack?.rounds ? { ...data.pack, final: data.pack.final ?? null } : (() => { const p = getDefaultPack(); return { id: p.id, title: p.title, rounds: p.rounds, final: p.final ?? null }; })(),
       hostSocketId: null,
-      // после рестарта сервера транзиентные фазы откатываем к показу вопроса
-      phase: ['buzz', 'answer'].includes(data.phase) ? 'question' : data.phase,
+      // после рестарта сервера транзиентные фазы откатываем:
+      // buzz/answer → показ вопроса, cat/auction → обратно к полю, final → сбор ставок заново
+      phase: ['buzz', 'answer'].includes(data.phase) ? 'question'
+        : ['cat', 'auction'].includes(data.phase) ? 'board'
+        : data.phase,
       settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
       players: new Map(),
       game: null,
@@ -289,12 +320,16 @@ export class RoomManager {
         roundIndex: data.game.roundIndex,
         pickerId: data.game.pickerId,
         used: data.game.used,
-        question: data.game.question,
+        question: ['cat', 'auction'].includes(data.phase) ? null : data.game.question,
         revealed: data.game.revealed,
         paused: false,
         deadlineTs: null,
         buzz: { open: false, winnerId: null, lockedIds: new Set(data.game.lockedIds || []) },
+        finalPlayed: data.game.finalPlayed || false,
       };
+      if (data.phase === 'final') {
+        room.game.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {} };
+      }
     }
     return room;
   }

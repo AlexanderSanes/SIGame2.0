@@ -1,11 +1,14 @@
 // Единственное место, где меняется room.phase. Допустимые переходы:
 const ALLOWED = {
   lobby: ['board'],                              // game:start
-  board: ['question', 'answer', 'game_over'],    // answer — отмена вердикта (undo)
+  board: ['question', 'cat', 'auction', 'final', 'answer', 'game_over'], // answer — отмена вердикта (undo)
   question: ['buzz', 'board', 'game_over'],      // board/game_over — пропуск вопроса / стоп игры
+  cat: ['answer', 'board', 'game_over'],         // кот в мешке: назначение → ответ
+  auction: ['answer', 'board', 'game_over'],     // аукцион: ставки → ответ
   buzz: ['answer', 'reveal', 'board', 'game_over'], // buzz:press | таймаут | пропуск/стоп
   answer: ['buzz', 'reveal', 'board', 'game_over'], // вердикт ведущего
   reveal: ['board', 'game_over', 'answer'],      // question:close | undo
+  final: ['game_over'],                          // финал завершается только концом игры
   game_over: ['answer'],                         // undo из финала
 };
 
@@ -29,6 +32,7 @@ function clearTimer(room, key) {
 function clearAllTimers(room) {
   clearTimer(room, 'buzz');
   clearTimer(room, 'answer');
+  clearTimer(room, 'final');
 }
 
 export function logAction(io, rooms, room, text) {
@@ -141,18 +145,121 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
   if (!q) throw new Error('Ячейка не найдена');
   if (g.used[g.roundIndex][themeIdx][qIdx]) throw new Error('Ячейка уже сыграна');
 
-  transition(room, 'question');
-  g.question = { themeIdx, qIdx, price: q.price, text: q.text, answer: q.answer, themeTitle: theme.title, media: q.media || [], answerMedia: q.answerMedia || [] };
+  const type = q.type || 'normal';
+  g.question = { themeIdx, qIdx, price: q.price, text: q.text, answer: q.answer, themeTitle: theme.title, type, media: q.media || [], answerMedia: q.answerMedia || [] };
   g.revealed = false;
   g.paused = false;
   g.deadlineTs = null;
   g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
   rooms.touch(room);
 
+  if (type === 'cat') {
+    // кот в мешке: вопрос не показываем, пока ведущий не выберет игрока и цену
+    transition(room, 'cat');
+    rooms.touch(room);
+    io.to(room.id).emit('cat:pending', { themeTitle: theme.title, basePrice: q.price, themeIdx, qIdx });
+    emitPhase(io, room);
+    logAction(io, rooms, room, `Кот в мешке: ${theme.title}`);
+    return;
+  }
+  if (type === 'auction') {
+    // аукцион: скрытые ставки, вопрос показываем после закрытия приёма
+    transition(room, 'auction');
+    g.auction = { minBet: q.price, bets: {} }; // playerId → { amount, ts }
+    rooms.touch(room);
+    io.to(room.id).emit('auction:start', { themeTitle: theme.title, minBet: q.price });
+    emitAuctionState(io, rooms, room);
+    emitPhase(io, room);
+    logAction(io, rooms, room, `Аукцион: ${theme.title}, от ${q.price}`);
+    return;
+  }
+
+  transition(room, 'question');
   emitQuestion(io, room);
   emitBuzzState(io, room); // у всех клиентов кнопка гарантированно сброшена
   emitPhase(io, room);
   if (byHost) logAction(io, rooms, room, `Вопрос выбран ведущим: ${theme.title}, ${q.price}`);
+}
+
+// Ответ без кнопки: назначенный игрок сразу в фазу answer, таймер как обычно
+function startDirectAnswer(io, rooms, room, playerId) {
+  const g = room.game;
+  const player = room.players.get(playerId);
+  g.buzz.winnerId = playerId;
+  transition(room, 'answer');
+  g.deadlineTs = Date.now() + room.settings.answerTimeSec * 1000;
+  rooms.touch(room);
+  room._timers.answer = setTimeout(
+    () => applyVerdict(io, rooms, room, false, { auto: true }),
+    room.settings.answerTimeSec * 1000,
+  );
+  emitQuestion(io, room);
+  emitBuzzState(io, room);
+  io.to(room.id).emit('buzz:winner', { playerId, nick: player.nick });
+  emitPhase(io, room);
+}
+
+// ---------- кот в мешке ----------
+
+export function catAssign(io, rooms, room, playerId, price) {
+  const g = room.game;
+  if (room.phase !== 'cat') throw new Error('Сейчас нет кота в мешке');
+  const player = room.players.get(playerId);
+  if (!player || player.role === 'spectator') throw new Error('Игрок не найден');
+  const p = Number.parseInt(price, 10);
+  if (!Number.isFinite(p) || p <= 0 || p > 100000) throw new Error('Цена: положительное целое');
+  g.question.price = p;
+  logAction(io, rooms, room, `Кот передан: ${player.nick}, цена ${p}`);
+  startDirectAnswer(io, rooms, room, playerId);
+}
+
+// ---------- аукцион ----------
+
+function emitAuctionState(io, rooms, room) {
+  const g = room.game;
+  const total = [...room.players.values()].filter((p) => p.role !== 'spectator').length;
+  io.to(room.id).emit('auction:state', { betCount: Object.keys(g.auction?.bets || {}).length, playersCount: total });
+}
+
+export function auctionBet(io, rooms, room, playerId, amount) {
+  const g = room.game;
+  if (room.phase !== 'auction') throw new Error('Сейчас ставки не принимаются');
+  const player = room.players.get(playerId);
+  if (!player?.connected || player.role === 'spectator') throw new Error('Игрок не найден');
+  const min = g.auction.minBet;
+  const max = Math.max(player.score, min); // при счёте ниже цены ячейки можно поставить только минимум
+  const bet = Number.parseInt(amount, 10);
+  if (!Number.isFinite(bet) || bet < min || bet > max) {
+    throw new Error(`Ставка от ${min} до ${max}`);
+  }
+  g.auction.bets[playerId] = { amount: bet, ts: Date.now() };
+  rooms.touch(room);
+  emitAuctionState(io, rooms, room);
+  logAction(io, rooms, room, `Ставка принята: ${player.nick}`);
+  return { min, max };
+}
+
+export function auctionClose(io, rooms, room) {
+  const g = room.game;
+  if (room.phase !== 'auction') throw new Error('Аукцион не идёт');
+  const entries = Object.entries(g.auction.bets);
+  io.to(room.id).emit('auction:result', {
+    bets: entries.map(([id, b]) => ({ playerId: id, amount: b.amount })),
+  });
+  if (!entries.length) {
+    logAction(io, rooms, room, 'Аукцион: ставок нет, вопрос сгорел');
+    g.auction = null;
+    advance(io, rooms, room);
+    return;
+  }
+  // больше всех; при равенстве — кто поставил раньше
+  entries.sort((a, b) => b[1].amount - a[1].amount || a[1].ts - b[1].ts);
+  const [winnerId, bet] = entries[0];
+  const player = room.players.get(winnerId);
+  g.question.price = bet.amount;
+  logAction(io, rooms, room, `Аукцион выигран: ${player.nick}, ставка ${bet.amount}`);
+  g.auction = null;
+  startDirectAnswer(io, rooms, room, winnerId);
 }
 
 export function openBuzz(io, rooms, room) {
@@ -247,6 +354,12 @@ function applyVerdict(io, rooms, room, correct, { auto = false } = {}) {
     return;
   }
 
+  // кот/аукцион: отвечает один игрок, неверный ответ сразу закрывает вопрос
+  if (g.question.type && g.question.type !== 'normal') {
+    goToReveal(io, rooms, room);
+    return;
+  }
+
   g.buzz.lockedIds.add(winnerId);
   g.buzz.winnerId = null;
   resumeBuzzOrReveal(io, rooms, room);
@@ -320,6 +433,10 @@ function advance(io, rooms, room) {
   if (roundDone) {
     g.roundIndex += 1;
     if (g.roundIndex >= room.pack.rounds.length) {
+      if (room.pack.final && !g.finalPlayed) {
+        startFinal(io, rooms, room);
+        return;
+      }
       finishGame(io, rooms, room);
       return;
     }
@@ -353,6 +470,136 @@ function buildStandings(room) {
     prevScore = p.score;
     return { place, id: p.id, nick: p.nick, avatarUrl: p.avatarUrl, score: p.score };
   });
+}
+
+// ---------- финальный раунд ----------
+
+const FINAL_ANSWER_MS = 30 * 1000;
+
+function finalEligible(room) {
+  return [...room.players.values()].filter((p) => p.role !== 'spectator' && p.score > 0);
+}
+
+function emitFinalState(io, rooms, room) {
+  const g = room.game;
+  const eligible = finalEligible(room);
+  io.to(room.id).emit('final:state', {
+    stage: g.final.stage,
+    eligibleIds: eligible.map((p) => p.id),
+    stakedIds: Object.keys(g.final.bets),
+    answeredIds: Object.keys(g.final.answers),
+    deadlineTs: g.deadlineTs,
+  });
+}
+
+function startFinal(io, rooms, room) {
+  const g = room.game;
+  const f = room.pack.final;
+  g.finalPlayed = true;
+  g.final = { stage: 'stake', bets: {}, answers: {}, verdicts: {} };
+  g.question = { themeIdx: -1, qIdx: -1, price: 0, text: f.text, answer: f.answer, themeTitle: f.title, type: 'final', media: f.media || [], answerMedia: [] };
+  g.buzz = { open: false, winnerId: null, lockedIds: new Set() };
+  g.deadlineTs = null;
+  transition(room, 'final');
+  rooms.touch(room);
+  io.to(room.id).emit('final:start', { title: f.title });
+  emitFinalState(io, rooms, room);
+  emitPhase(io, room);
+  logAction(io, rooms, room, `Финальный раунд: ${f.title}`);
+}
+
+export function finalStake(io, rooms, room, playerId, amount) {
+  const g = room.game;
+  if (room.phase !== 'final' || g.final.stage !== 'stake') throw new Error('Сейчас ставки не принимаются');
+  const player = room.players.get(playerId);
+  if (!player?.connected || player.role === 'spectator') throw new Error('Игрок не найден');
+  if (player.score <= 0) throw new Error('В финале играют только с положительным счётом');
+  const bet = Number.parseInt(amount, 10);
+  if (!Number.isFinite(bet) || bet < 0 || bet > player.score) {
+    throw new Error(`Ставка от 0 до ${player.score}`);
+  }
+  g.final.bets[playerId] = bet;
+  rooms.touch(room);
+  emitFinalState(io, rooms, room);
+  logAction(io, rooms, room, `Финал: ставка от ${player.nick}`);
+}
+
+// Ведущий открывает вопрос: 30 секунд на письменные ответы
+export function finalStartAnswers(io, rooms, room) {
+  const g = room.game;
+  if (room.phase !== 'final' || g.final.stage !== 'stake') throw new Error('Сначала ставки');
+  g.final.stage = 'answer';
+  g.deadlineTs = Date.now() + FINAL_ANSWER_MS;
+  rooms.touch(room);
+  room._timers.final = setTimeout(() => finalCloseAnswers(io, rooms, room), FINAL_ANSWER_MS);
+  // финальный вопрос видят все, включая игроков
+  const q = g.question;
+  io.to(room.id).emit('question:show', { themeIdx: -1, qIdx: -1, themeTitle: q.themeTitle, price: 0, text: q.text, media: q.media });
+  emitFinalState(io, rooms, room);
+  emitPhase(io, room);
+  logAction(io, rooms, room, 'Финал: вопрос открыт, 30 секунд на ответы');
+}
+
+export function finalAnswer(io, rooms, room, playerId, text) {
+  const g = room.game;
+  if (room.phase !== 'final' || g.final.stage !== 'answer') throw new Error('Ответы не принимаются');
+  if (g.final.bets[playerId] === undefined) throw new Error('Вы не делали ставку');
+  const clean = String(text ?? '').trim().slice(0, 500);
+  if (!clean) throw new Error('Пустой ответ');
+  g.final.answers[playerId] = clean;
+  rooms.touch(room);
+  emitFinalState(io, rooms, room);
+  return true;
+}
+
+export function finalCloseAnswers(io, rooms, room) {
+  const g = room.game;
+  if (room.phase !== 'final' || g.final.stage !== 'answer') return;
+  clearTimer(room, 'final');
+  g.final.stage = 'judge';
+  g.deadlineTs = null;
+  rooms.touch(room);
+  emitFinalState(io, rooms, room);
+  sendFinalAnswersToHost(io, room);
+  emitPhase(io, room);
+  logAction(io, rooms, room, 'Финал: приём ответов закрыт');
+}
+
+function sendFinalAnswersToHost(io, room) {
+  if (!room.hostSocketId) return;
+  const g = room.game;
+  io.to(room.hostSocketId).emit('final:answers', {
+    answer: g.question.answer,
+    entries: Object.entries(g.final.bets).map(([playerId, bet]) => {
+      const p = room.players.get(playerId);
+      return { playerId, nick: p?.nick ?? '?', bet, text: g.final.answers[playerId] ?? null, verdict: g.final.verdicts[playerId] ?? null };
+    }),
+  });
+}
+
+export function finalJudge(io, rooms, room, playerId, correct) {
+  const g = room.game;
+  if (room.phase !== 'final' || g.final.stage !== 'judge') throw new Error('Сейчас нечего судить');
+  const bet = g.final.bets[playerId];
+  if (bet === undefined) throw new Error('Игрок не участвовал в финале');
+  if (g.final.verdicts[playerId] !== undefined) throw new Error('Вердикт уже вынесен');
+  const player = room.players.get(playerId);
+  rooms.pushHistory(room, { type: 'adjust', playerId, prevScore: player.score });
+  player.score += correct ? bet : -bet;
+  g.final.verdicts[playerId] = Boolean(correct);
+  rooms.touch(room);
+  emitScores(io, rooms, room);
+  io.to(room.id).emit('answer:verdict', { playerId, correct: Boolean(correct), delta: correct ? bet : -bet });
+  logAction(io, rooms, room, `Финал: ${player.nick} ${correct ? `+${bet}` : `−${bet}`}`);
+  sendFinalAnswersToHost(io, room);
+  // все вердикты вынесены — показываем итоги финала всем
+  if (Object.keys(g.final.verdicts).length === Object.keys(g.final.bets).length) {
+    io.to(room.id).emit('final:results', {
+      entries: Object.entries(g.final.bets).map(([pid, b]) => ({
+        playerId: pid, bet: b, text: g.final.answers[pid] ?? null, verdict: g.final.verdicts[pid],
+      })),
+    });
+  }
 }
 
 // ---------- пульт ведущего ----------
@@ -422,10 +669,11 @@ export function setPicker(io, rooms, room, playerId) {
 }
 
 export function skipQuestion(io, rooms, room) {
-  if (!['question', 'buzz', 'answer', 'reveal'].includes(room.phase)) {
+  if (!['question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(room.phase)) {
     throw new Error('Нечего пропускать');
   }
   clearAllTimers(room);
+  room.game.auction = null;
   logAction(io, rooms, room, `Вопрос пропущен (${room.game.question?.price ?? '—'})`);
   advance(io, rooms, room);
 }
@@ -470,6 +718,10 @@ export function endRound(io, rooms, room) {
   g.roundIndex += 1;
   logAction(io, rooms, room, 'Раунд завершён досрочно');
   if (g.roundIndex >= room.pack.rounds.length) {
+    if (room.pack.final && !g.finalPlayed) {
+      startFinal(io, rooms, room);
+      return;
+    }
     finishGame(io, rooms, room);
     return;
   }

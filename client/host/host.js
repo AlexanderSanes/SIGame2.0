@@ -1,6 +1,7 @@
 import { socket, call, onReconnect } from '/shared/socket.js';
 import { h, toast, avatarEl, copyText } from '/shared/ui.js';
 import { renderMedia, preloadMedia } from '/shared/media.js';
+import { playSound, muteButton } from '/shared/sounds.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
 const hostToken = roomId && localStorage.getItem(`sigame:host:${roomId}`);
@@ -13,6 +14,7 @@ const playersCount = $('players-count');
 const emptyHint = $('empty-hint');
 
 let countdownTimer = null;
+let lastTick = null;
 let lastMediaKey = null;      // какой вопрос уже отрендерен в #q-media
 let lastAnswerRendered = false; // картинка ответа уже показана
 
@@ -22,7 +24,10 @@ const S = {
   settings: null,
   game: null,
   log: [],
+  special: null,   // { kind:'cat'|'auction'|'final', ... }
+  finalAnswers: null, // entries от final:answers
 };
+document.querySelector('h1').append(muteButton());
 
 if (!roomId || !hostToken) {
   noAccess.hidden = false;
@@ -230,6 +235,7 @@ socket.on('game:phase', (p) => {
   S.game.revealed = p.revealed;
   S.game.paused = p.paused;
   S.game.deadlineTs = p.deadlineTs;
+  if (p.phase === 'board') { S.special = null; S.finalAnswers = null; }
   render();
 });
 
@@ -294,6 +300,45 @@ socket.on('answer:reveal', ({ answer, answerMedia }) => {
 
 socket.on('round:media', ({ urls }) => preloadMedia(urls));
 
+// ---------- особые механики ----------
+socket.on('cat:pending', ({ basePrice }) => {
+  playSound('special');
+  S.special = { kind: 'cat', basePrice };
+  render();
+});
+socket.on('auction:start', ({ minBet }) => {
+  playSound('special');
+  S.special = { kind: 'auction', minBet, betCount: 0, playersCount: 0 };
+  render();
+});
+socket.on('auction:state', ({ betCount, playersCount }) => {
+  if (S.special?.kind === 'auction') Object.assign(S.special, { betCount, playersCount });
+  renderSpecial();
+});
+socket.on('auction:result', ({ bets }) => {
+  if (S.special?.kind === 'auction') S.special.result = bets;
+});
+socket.on('final:start', ({ title }) => {
+  playSound('special');
+  S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [] };
+  S.finalAnswers = null;
+  render();
+});
+socket.on('final:state', (p) => {
+  if (S.special?.kind === 'final') Object.assign(S.special, p);
+  renderSpecial();
+});
+socket.on('final:answers', ({ answer, entries }) => {
+  S.finalAnswers = { answer, entries };
+  renderSpecial();
+});
+socket.on('final:results', () => {
+  toast('Финал: все вердикты вынесены — можно завершать игру');
+});
+
+// вердикт — звук (верно/неверно)
+socket.on('answer:verdict', ({ correct }) => playSound(correct ? 'correct' : 'wrong'));
+
 socket.on('game:over', ({ standings }) => {
   S.phase = 'game_over';
   S.standings = standings;
@@ -329,6 +374,7 @@ function render() {
     renderScores();
     renderBoard();
     renderQuestion();
+    renderSpecial();
     renderControls();
     renderPlayersCtrl();
   }
@@ -460,6 +506,9 @@ function renderQuestion() {
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {
     question: 'Читайте вопрос, затем разрешите ответы',
+    cat: 'Кот в мешке — назначьте игрока и цену ↓',
+    auction: 'Аукцион — ждём ставки ↓',
+    final: 'Финальный раунд ↓',
     buzz: 'Приём ответов…',
     answer: winner ? `Отвечает: ${winner.nick}` : '',
     reveal: 'Вопрос сгорел / никто не ответил верно',
@@ -469,11 +518,90 @@ function renderQuestion() {
   if (g.paused) {
     stopCountdown();
     $('countdown').textContent = '⏸';
-  } else if (g.deadlineTs && ['buzz', 'answer'].includes(S.phase)) {
+  } else if (g.deadlineTs && ['buzz', 'answer', 'final'].includes(S.phase)) {
     startCountdown(g.deadlineTs);
   } else {
     stopCountdown();
     $('countdown').textContent = '';
+  }
+}
+
+// Панель особых фаз: назначение кота, приём ставок аукциона, финал
+function renderSpecial() {
+  const card = $('special-card');
+  card.replaceChildren();
+  const sp = S.special;
+  if (!sp || !['cat', 'auction', 'final'].includes(S.phase)) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+
+  if (S.phase === 'cat' && sp.kind === 'cat') {
+    const players = S.players.filter((p) => p.role !== 'spectator');
+    const select = h('select', {}, ...players.map((p) => h('option', { value: p.id }, p.nick)));
+    const price = h('input', { type: 'number', min: '1', step: '50', value: String(sp.basePrice) });
+    card.append(
+      h('h2', {}, '🐈 Кот в мешке!'),
+      h('p', { class: 'muted' }, 'Выберите игрока и назначьте цену вопроса'),
+      h('div', { class: 'q-row' }, select, price,
+        h('button', { onclick: async () => {
+          try {
+            await call('cat:assign', { playerId: select.value, price: Number(price.value) });
+          } catch (e) { toast(e.message, 'error'); }
+        } }, 'Передать вопрос')),
+    );
+    return;
+  }
+
+  if (S.phase === 'auction' && sp.kind === 'auction') {
+    card.append(
+      h('h2', {}, '🔨 Аукцион'),
+      h('p', { class: 'center' }, `Ставок: ${sp.betCount}/${sp.playersCount} (минимум ${sp.minBet})`),
+      h('button', { onclick: () => call('auction:close', {}).catch((e) => toast(e.message, 'error')) },
+        'Закрыть приём ставок'),
+    );
+    return;
+  }
+
+  if (S.phase === 'final' && sp.kind === 'final') {
+    if (sp.stage === 'stake') {
+      card.append(
+        h('h2', {}, `★ Финал: ${sp.title}`),
+        h('p', { class: 'center' }, `Ставок: ${sp.stakedIds.length}/${sp.eligibleIds.length}`),
+        h('button', { onclick: () => call('final:go', {}).catch((e) => toast(e.message, 'error')) },
+          'Открыть вопрос (30 сек на ответы)'),
+      );
+      return;
+    }
+    if (sp.stage === 'answer') {
+      card.append(
+        h('h2', {}, `★ Финал: ${sp.title}`),
+        h('p', { class: 'center' }, `Ответов: ${sp.answeredIds.length}/${sp.stakedIds.length}`),
+        h('button', { onclick: () => call('final:go', {}).catch((e) => toast(e.message, 'error')) },
+          'Закрыть приём ответов'),
+      );
+      return;
+    }
+    if (sp.stage === 'judge') {
+      card.append(h('h2', {}, `★ Финал: проверка ответов`));
+      if (S.finalAnswers) {
+        card.append(h('p', { class: 'muted' }, `Правильный ответ: ${S.finalAnswers.answer}`));
+        for (const e of S.finalAnswers.entries) {
+          card.append(h('div', { class: 'q-row final-entry' },
+            h('span', { class: 'grow' }, `${e.nick} (ставка ${e.bet}): ${e.text ?? '— без ответа —'}`),
+            e.verdict === null || e.verdict === undefined
+              ? h('span', {},
+                  h('button', { class: 'mini success', onclick: () => call('final:judge', { playerId: e.playerId, correct: true }).catch((er) => toast(er.message, 'error')) }, 'Верно'),
+                  ' ',
+                  h('button', { class: 'mini danger', onclick: () => call('final:judge', { playerId: e.playerId, correct: false }).catch((er) => toast(er.message, 'error')) }, 'Неверно'))
+              : h('span', { class: e.verdict ? 'points' : 'points negative' }, e.verdict ? `+${e.bet}` : `−${e.bet}`),
+          ));
+        }
+      } else {
+        card.append(h('p', { class: 'muted' }, 'Загрузка ответов…'));
+      }
+    }
   }
 }
 
@@ -484,7 +612,7 @@ function renderControls() {
   $('wrong-btn').hidden = S.phase !== 'answer';
   $('reveal-btn').hidden = S.phase !== 'reveal' || g?.revealed;
   $('close-question-btn').hidden = S.phase !== 'reveal' || !g?.revealed;
-  $('skip-btn').hidden = !['question', 'buzz', 'answer', 'reveal'].includes(S.phase);
+  $('skip-btn').hidden = !['question', 'cat', 'auction', 'buzz', 'answer', 'reveal'].includes(S.phase);
   $('pause-btn').hidden = !['buzz', 'answer'].includes(S.phase);
   $('pause-btn').textContent = g?.paused ? 'Продолжить' : 'Пауза';
 }
@@ -562,9 +690,14 @@ function renderLog() {
 
 function startCountdown(deadlineTs) {
   stopCountdown();
+  lastTick = null;
   const tick = () => {
     const left = Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000));
     $('countdown').textContent = left > 0 ? String(left) : '';
+    if (left > 0 && left <= 5 && left !== lastTick) {
+      lastTick = left;
+      playSound('tick');
+    }
     if (left <= 0) stopCountdown();
   };
   tick();

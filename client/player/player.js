@@ -1,6 +1,7 @@
 import { socket, call, onReconnect } from '/shared/socket.js';
-import { h, toast, avatarEl, beep, vibrate } from '/shared/ui.js';
+import { h, toast, avatarEl, vibrate } from '/shared/ui.js';
 import { renderMedia, preloadMedia } from '/shared/media.js';
+import { playSound, muteButton } from '/shared/sounds.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
 const storageKey = `sigame:player:${roomId}`;
@@ -22,6 +23,7 @@ const buzzBtn = $('buzz-btn');
 let avatarDataUrl = null;
 let myId = null;
 let countdownTimer = null;
+let lastTick = null;          // последняя прозвучавшая секунда тиканья
 let lastMediaKey = null;      // какой вопрос уже отрендерен в #q-media
 let lastAnswerRendered = false; // картинка ответа уже показана
 
@@ -31,9 +33,26 @@ const S = {
   players: [],
   settings: null,
   game: null,
+  special: null, // { kind:'auction'|'final', ... }
 };
 
+const REACTION_EMOJIS = ['👍', '😂', '😮', '👏', '🔥'];
+
+// --- реакции ---
+const reactionBar = $('reaction-bar');
+for (const emoji of REACTION_EMOJIS) {
+  const btn = h('button', { class: 'reaction-btn' }, emoji);
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    setTimeout(() => { btn.disabled = false; }, 1500);
+    const res = await call('reaction:send', { emoji });
+    if (res?.ok === false && res.retryAfterMs) toast('Не так быстро 🙂');
+  });
+  reactionBar.append(btn);
+}
+
 $('room-code').textContent = roomId || '???';
+document.querySelector('h1').append(muteButton());
 
 if (!roomId) {
   showGone('Некорректная ссылка на комнату');
@@ -159,7 +178,7 @@ socket.on('game:phase', (p) => {
   S.game.revealed = p.revealed;
   S.game.paused = p.paused;
   S.game.deadlineTs = p.deadlineTs ?? S.game.deadlineTs;
-  if (p.phase === 'board') S.game.question = null;
+  if (p.phase === 'board') { S.game.question = null; S.special = null; }
   render();
 });
 
@@ -201,7 +220,7 @@ socket.on('buzz:state', ({ open, deadlineTs, lockedIds, paused }) => {
   S.game.deadlineTs = deadlineTs ?? S.game.deadlineTs;
   if (open && !paused && !lockedIds.includes(myId) && !isSpectator()) {
     vibrate(200);
-    beep(880);
+    playSound('open');
   }
   render();
 });
@@ -210,7 +229,7 @@ socket.on('buzz:winner', ({ playerId, nick }) => {
   ensureGame();
   S.game.buzz.winnerId = playerId;
   if (playerId === myId) {
-    beep(1320, 300);
+    playSound('press');
     vibrate([100, 50, 100]);
   }
   render();
@@ -230,6 +249,47 @@ socket.on('answer:reveal', ({ answer, answerMedia }) => {
     S.game.question.answerMedia = answerMedia || [];
   }
   render();
+});
+
+// вердикт ведущего — звук и вибрация, если это про меня
+socket.on('answer:verdict', ({ playerId, correct }) => {
+  playSound(correct ? 'correct' : 'wrong');
+  if (playerId === myId) vibrate(correct ? [50, 50, 200] : [200]);
+});
+
+// ---------- особые механики ----------
+socket.on('cat:pending', () => {
+  playSound('special');
+  ensureGame();
+  S.game.question = null; // до назначения прошлый вопрос не висит на экране
+  toast('Кот в мешке! 🐈');
+});
+
+socket.on('auction:start', ({ minBet }) => {
+  playSound('special');
+  ensureGame();
+  S.game.question = null;
+  S.special = { kind: 'auction', minBet, myBet: null, betCount: 0, playersCount: 0 };
+});
+socket.on('auction:state', ({ betCount, playersCount }) => {
+  if (S.special?.kind === 'auction') Object.assign(S.special, { betCount, playersCount });
+  renderSpecial();
+});
+socket.on('auction:result', () => {
+  if (S.special?.kind === 'auction') S.special.closed = true;
+});
+
+socket.on('final:start', () => {
+  playSound('special');
+  S.special = { kind: 'final', stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [], myStake: null, myAnswer: null };
+});
+socket.on('final:state', (p) => {
+  if (S.special?.kind === 'final') Object.assign(S.special, p);
+  renderSpecial();
+});
+socket.on('final:results', ({ entries }) => {
+  const mine = entries.find((e) => e.playerId === myId);
+  if (mine) toast(mine.verdict ? `Финал: верно! +${mine.bet}` : `Финал: неверно −${mine.bet}`, mine.verdict ? 'success' : 'error');
 });
 
 socket.on('round:media', ({ urls }) => preloadMedia(urls));
@@ -278,6 +338,7 @@ function render() {
   lobby.hidden = S.phase !== 'lobby';
   overEl.hidden = S.phase !== 'game_over';
   gameEl.hidden = S.phase === 'lobby' || S.phase === 'game_over';
+  reactionBar.hidden = gameEl.hidden || isSpectator();
 
   if (!lobby.hidden) renderLobby();
   if (!gameEl.hidden) renderGame();
@@ -400,20 +461,99 @@ function renderStatus() {
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {
     question: 'Идёт вопрос… жди сигнала ведущего',
+    cat: 'Кот в мешке! 🐈 Ведущий выбирает, кому достанется вопрос',
+    auction: 'Аукцион! Сделай свою ставку',
+    final: S.special?.stage === 'stake' ? 'Финальный раунд! Сделай ставку'
+      : S.special?.stage === 'answer' ? 'Пиши ответ — 30 секунд!'
+      : 'Ведущий проверяет ответы…',
     buzz: g.buzz.open ? 'Жми кнопку!' : 'Приём ответов…',
     answer: winner ? (winner.id === myId ? 'Ты отвечаешь!' : `Отвечает: ${winner.nick}`) : '',
     reveal: 'Вопрос закрыт',
   };
   $('status-text').textContent = g.paused ? 'Пауза' : texts[S.phase] || '';
+  renderSpecial();
 
   if (g.paused) {
     stopCountdown();
     $('countdown').textContent = '⏸';
-  } else if (g.deadlineTs && ['buzz', 'answer'].includes(S.phase)) {
+  } else if (g.deadlineTs && ['buzz', 'answer', 'final'].includes(S.phase)) {
     startCountdown(g.deadlineTs);
   } else {
     stopCountdown();
     $('countdown').textContent = '';
+  }
+}
+
+// Панели особых механик: ставки аукциона, ставка и ответ финала
+function renderSpecial() {
+  const box = $('special');
+  box.replaceChildren();
+  const sp = S.special;
+  const g = S.game;
+  if (!sp || !g || isSpectator()) return;
+
+  if (S.phase === 'auction' && sp.kind === 'auction') {
+    const me = S.players.find((p) => p.id === myId);
+    const min = sp.minBet;
+    const max = Math.max(me?.score ?? 0, min);
+    if (sp.myBet != null) {
+      box.append(h('p', { class: 'center' }, `Ставка принята: ${sp.myBet}`),
+        h('p', { class: 'muted center' }, `Ставок: ${sp.betCount}/${sp.playersCount}`));
+      return;
+    }
+    const input = h('input', { type: 'number', min: String(min), max: String(max), value: String(min) });
+    box.append(
+      h('p', { class: 'muted center' }, `Ставка от ${min} до ${max}`),
+      h('div', { class: 'q-row' }, input,
+        h('button', { onclick: async () => {
+          const res = await call('auction:bet', { amount: Number(input.value) });
+          if (res?.ok) { sp.myBet = Number(input.value); renderSpecial(); }
+          else toast(res?.error || 'Ставка не принята', 'error');
+        } }, 'Поставить')),
+    );
+    return;
+  }
+
+  if (S.phase === 'final' && sp.kind === 'final') {
+    const me = S.players.find((p) => p.id === myId);
+    if (sp.stage === 'stake') {
+      if (!sp.eligibleIds.includes(myId)) {
+        box.append(h('p', { class: 'muted center' }, 'Финал для игроков с положительным счётом'));
+        return;
+      }
+      if (sp.myStake != null) {
+        box.append(h('p', { class: 'center' }, `Ставка принята: ${sp.myStake}`));
+        return;
+      }
+      const input = h('input', { type: 'number', min: '0', max: String(me?.score ?? 0), value: '0' });
+      box.append(
+        h('p', { class: 'muted center' }, `Твоя ставка: от 0 до ${me?.score ?? 0}`),
+        h('div', { class: 'q-row' }, input,
+          h('button', { onclick: async () => {
+            const res = await call('final:stake', { amount: Number(input.value) });
+            if (res?.ok) { sp.myStake = Number(input.value); renderSpecial(); }
+            else toast(res?.error || 'Ставка не принята', 'error');
+          } }, 'Поставить')),
+      );
+      return;
+    }
+    if (sp.stage === 'answer') {
+      if (sp.myStake == null) {
+        box.append(h('p', { class: 'muted center' }, 'Ты не делал ставку — наблюдай'));
+        return;
+      }
+      if (sp.myAnswer != null) {
+        box.append(h('p', { class: 'center' }, 'Ответ отправлен ✔'));
+        return;
+      }
+      const input = h('input', { type: 'text', maxlength: '500', placeholder: 'Твой ответ…' });
+      box.append(h('div', { class: 'q-row' }, input,
+        h('button', { onclick: async () => {
+          const res = await call('final:answer', { text: input.value });
+          if (res?.ok) { sp.myAnswer = input.value; renderSpecial(); }
+          else toast(res?.error || 'Ответ не принят', 'error');
+        } }, 'Отправить')));
+    }
   }
 }
 
@@ -440,9 +580,14 @@ function hideBuzz() {
 
 function startCountdown(deadlineTs) {
   stopCountdown();
+  lastTick = null;
   const tick = () => {
     const left = Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000));
     $('countdown').textContent = left > 0 ? String(left) : '';
+    if (left > 0 && left <= 5 && left !== lastTick) {
+      lastTick = left;
+      playSound('tick');
+    }
     if (left <= 0) stopCountdown();
   };
   tick();

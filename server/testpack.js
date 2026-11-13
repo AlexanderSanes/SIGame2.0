@@ -1,4 +1,36 @@
-// Временный захардкоженный пакет для этапа 2 (позже заменится загрузкой из packages/)
+// Второй встроенный пакет: особые вопросы (кот, аукцион) и финальный раунд
+export const TEST_PACK_SPECIAL = {
+  id: 'test-pack-special',
+  title: 'Тестовый пакет: особые вопросы',
+  rounds: [
+    {
+      title: 'Раунд 1',
+      themes: [
+        {
+          title: 'География',
+          questions: [
+            { price: 100, text: 'Столица Франции?', answer: 'Париж' },
+            { price: 200, text: 'Самая длинная река Европы?', answer: 'Волга', type: 'cat' },
+            { price: 300, text: 'Флаг какой страны изображён на картинке?', answer: 'Россия', media: [{ type: 'image', src: '/testpack-media/flag.png' }] },
+          ],
+        },
+        {
+          title: 'Наука',
+          questions: [
+            { price: 100, text: 'Химический символ золота?', answer: 'Au', type: 'auction' },
+            { price: 200, text: 'Сколько планет в Солнечной системе?', answer: '8' },
+            { price: 300, text: 'Какой тон звучит? (примерная частота)', answer: '440 Гц (нота ля первой октавы)', media: [{ type: 'audio', src: '/testpack-media/tone.wav' }] },
+          ],
+        },
+      ],
+    },
+  ],
+  final: {
+    title: 'Столицы мира',
+    text: 'Столица Австралии?',
+    answer: 'Канберра',
+  },
+};
 export const TEST_PACK = {
   id: 'test-pack',
   title: 'Тестовый пакет',

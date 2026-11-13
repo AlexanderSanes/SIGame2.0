@@ -221,6 +221,9 @@ export function registerGameHandlers(io, socket, rooms) {
     done({ ok: true });
   });
 
+  // ---------- особые вопросы ----------
+
+  // game:end — досрочное завершение игры
   socket.on('game:end', (_p, ack) => {
     const done = reply(ack);
     try {
@@ -232,5 +235,125 @@ export function registerGameHandlers(io, socket, rooms) {
     } catch (e) {
       done({ ok: false, error: e.message });
     }
+  });
+
+  // cat:assign { playerId, price } — ведущий передаёт кота игроку за назначенную цену
+  socket.on('cat:assign', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.catAssign(io, rooms, room, payload?.playerId, payload?.price);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  // auction:bet { amount } — скрытая ставка игрока
+  socket.on('auction:bet', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isPlayer()) return done({ ok: false, error: 'Только игроки делают ставки' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      const { min, max } = game.auctionBet(io, rooms, room, socket.data.playerId, payload?.amount);
+      done({ ok: true, min, max });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('auction:close', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.auctionClose(io, rooms, room);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- финальный раунд ----------
+
+  socket.on('final:stake', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isPlayer()) return done({ ok: false, error: 'Только игроки делают ставки' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.finalStake(io, rooms, room, socket.data.playerId, payload?.amount);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('final:go', (_p, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      if (room.game?.final?.stage === 'stake') game.finalStartAnswers(io, rooms, room);
+      else if (room.game?.final?.stage === 'answer') game.finalCloseAnswers(io, rooms, room);
+      else return done({ ok: false, error: 'Сейчас нечего переключать' });
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('final:answer', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isPlayer()) return done({ ok: false, error: 'Только игроки отвечают' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.finalAnswer(io, rooms, room, socket.data.playerId, payload?.text);
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  socket.on('final:judge', (payload, ack) => {
+    const done = reply(ack);
+    try {
+      if (!isHost()) return done({ ok: false, error: 'Только ведущий судит' });
+      const room = roomOf();
+      if (!room) return done({ ok: false, error: 'Комната не найдена' });
+      game.finalJudge(io, rooms, room, payload?.playerId, Boolean(payload?.correct));
+      done({ ok: true });
+    } catch (e) {
+      done({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- реакции ----------
+
+  const REACTIONS = ['👍', '😂', '😮', '👏', '🔥'];
+
+  // reaction:send { emoji } → reaction:show всем; не чаще раза в 3 секунды на игрока
+  socket.on('reaction:send', (payload, ack) => {
+    const done = reply(ack);
+    if (!isPlayer()) return done({ ok: false, error: 'Только игроки отправляют реакции' });
+    const room = roomOf();
+    if (!room) return done({ ok: false, error: 'Комната не найдена' });
+    const emoji = payload?.emoji;
+    if (!REACTIONS.includes(emoji)) return done({ ok: false, error: 'Неизвестная реакция' });
+    const player = room.players.get(socket.data.playerId);
+    if (!player) return done({ ok: false, error: 'Игрок не найден' });
+    const now = Date.now();
+    if (player._lastReactionAt && now - player._lastReactionAt < 3000) {
+      return done({ ok: false, error: 'Не так быстро', retryAfterMs: 3000 - (now - player._lastReactionAt) });
+    }
+    player._lastReactionAt = now;
+    io.to(room.id).emit('reaction:show', { playerId: player.id, nick: player.nick, emoji });
+    done({ ok: true });
   });
 }

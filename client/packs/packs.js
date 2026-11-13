@@ -55,6 +55,7 @@ $('create-pack').addEventListener('click', () => {
   pack = {
     id: null,
     title: 'Новый пакет',
+    final: null,
     rounds: [{
       title: 'Раунд 1',
       themes: [{ title: 'Новая тема', questions: [{ price: 100, text: '', answer: '', type: 'normal', media: [], answerMedia: [] }] }],
@@ -98,6 +99,7 @@ async function openEditor(id) {
       }
     }
   }
+  pack.final ??= null;
   $('view-list').hidden = true;
   $('view-editor').hidden = false;
   $('validation-errors').hidden = true;
@@ -120,6 +122,40 @@ function renderEditor() {
   pack.rounds.forEach((round, ri) => {
     box.append(renderRound(round, ri));
   });
+  box.append(renderFinal());
+}
+
+// --- финальный раунд (необязательный) ---
+function renderFinal() {
+  if (!pack.final) {
+    return h('div', { class: 'round-block' },
+      h('button', { class: 'secondary', onclick: () => {
+        pack.final = { title: 'Финальная тема', text: '', answer: '', media: [] };
+        renderEditor();
+      } }, '+ Финальный раунд'));
+  }
+  const f = pack.final;
+  return h('div', { class: 'round-block final-block' },
+    h('div', { class: 'round-head' },
+      h('span', { class: 'drag-handle', style: 'cursor:default' }, '★'),
+      h('input', { value: f.title, placeholder: 'Название финальной темы',
+        'data-path': 'final.title', oninput: (e) => { f.title = e.target.value; } }),
+      h('button', { class: 'small-danger', onclick: () => { pack.final = null; renderEditor(); } }, 'Убрать финал'),
+    ),
+    h('div', { class: 'q-row' },
+      h('textarea', { placeholder: 'Текст финального вопроса', 'data-path': 'final.text',
+        oninput: (e) => { f.text = e.target.value; } }, f.text),
+    ),
+    h('div', { class: 'q-row' },
+      h('label', { class: 'grow' }, 'Правильный ответ',
+        h('input', { value: f.answer, 'data-path': 'final.answer', oninput: (e) => { f.answer = e.target.value; } })),
+    ),
+    h('div', { class: 'q-row' },
+      h('span', { class: 'muted', style: 'font-size:12px' }, 'Медиа:'),
+      mediaChips(f.media, () => renderEditor()),
+      mediaAdder(f.media, ['image', 'audio', 'video', 'youtube'], () => renderEditor()),
+    ),
+  );
 }
 
 // --- drag & drop: перетаскивание элементов списка, индекс хранится в dataset.idx
@@ -362,6 +398,11 @@ function clientValidate(p) {
       });
     });
   });
+  if (p.final) {
+    if (!p.final.title?.trim()) errors.push({ path: 'final.title', label: 'Финал', message: 'Нет названия финальной темы' });
+    if (!p.final.text?.trim() && !(p.final.media?.length)) errors.push({ path: 'final.text', label: 'Финал', message: 'Нужен текст вопроса или медиа' });
+    if (!p.final.answer?.trim()) errors.push({ path: 'final.answer', label: 'Финал', message: 'Нет правильного ответа' });
+  }
   return errors;
 }
 
@@ -396,7 +437,7 @@ $('save-btn').addEventListener('click', async () => {
     return;
   }
   try {
-    const payload = { title: pack.title.trim(), rounds: pack.rounds };
+    const payload = { title: pack.title.trim(), rounds: pack.rounds, final: pack.final || null };
     const { pack: saved } = pack.id
       ? await api('PUT', `/api/packs/${pack.id}`, payload)
       : await api('POST', '/api/packs', payload);

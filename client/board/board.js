@@ -1,15 +1,27 @@
 import { socket, call } from '/shared/socket.js';
 import { h, avatarEl } from '/shared/ui.js';
 import { renderMedia, applyMediaControl, preloadMedia } from '/shared/media.js';
+import { playSound, muteButton } from '/shared/sounds.js';
 
 const roomId = location.pathname.match(/\/room\/([A-Z2-9]+)\/screen/i)?.[1]?.toUpperCase();
 
 const $ = (id) => document.getElementById(id);
 
-const S = { phase: null, players: [], game: null, standings: null };
+const S = { phase: null, players: [], game: null, standings: null, special: null };
 let lastMediaKey = null;
 let lastAnswerRendered = false;
 let currentPlayers = []; // отрендеренные аудио/видео текущего вопроса (для media:control)
+
+document.body.append(muteButton());
+
+// реакция игрока — всплывающий эмодзи на 2 секунды
+socket.on('reaction:show', ({ nick, emoji }) => {
+  const el = h('div', { class: 'reaction-float', style: `left:${10 + Math.random() * 80}%` },
+    h('span', { class: 'reaction-emoji' }, emoji),
+    h('span', { class: 'reaction-nick' }, nick));
+  document.body.append(el);
+  setTimeout(() => el.remove(), 2000);
+});
 
 socket.on('connect', watch);
 onReconnectSafe();
@@ -50,6 +62,7 @@ socket.on('game:phase', (p) => {
   S.game.buzz.winnerId = p.winnerId;
   S.game.revealed = p.revealed;
   S.game.paused = p.paused;
+  if (p.phase === 'board') S.special = null;
   render();
 });
 socket.on('game:round', (p) => { ensureGame(); Object.assign(S.game, p); });
@@ -64,6 +77,7 @@ socket.on('question:show', (q) => {
 });
 socket.on('buzz:state', ({ open, lockedIds }) => {
   ensureGame();
+  if (open && !S.game.buzz.open) playSound('open');
   S.game.buzz.open = open;
   S.game.buzz.lockedIds = lockedIds;
   render();
@@ -85,6 +99,17 @@ socket.on('answer:reveal', ({ answer, answerMedia }) => {
 });
 socket.on('media:control', ({ action }) => applyMediaControl(currentPlayers, action));
 socket.on('round:media', ({ urls }) => preloadMedia(urls));
+
+// особые механики: сплэш + звук
+socket.on('cat:pending', () => { playSound('special'); ensureGame(); S.game.question = null; S.special = { kind: 'cat' }; render(); });
+socket.on('auction:start', () => { playSound('special'); ensureGame(); S.game.question = null; S.special = { kind: 'auction', betCount: 0, playersCount: 0 }; render(); });
+socket.on('auction:state', ({ betCount, playersCount }) => {
+  if (S.special?.kind === 'auction') Object.assign(S.special, { betCount, playersCount });
+  render();
+});
+socket.on('final:start', ({ title }) => { playSound('special'); S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [] }; render(); });
+socket.on('final:state', (p) => { if (S.special?.kind === 'final') Object.assign(S.special, p); render(); });
+socket.on('answer:verdict', ({ correct }) => playSound(correct ? 'correct' : 'wrong'));
 socket.on('game:over', ({ standings }) => {
   S.phase = 'game_over';
   S.standings = standings;
@@ -110,7 +135,32 @@ function render() {
   }
   renderScores();
   renderBoard();
+  renderSpecial();
   renderQuestion();
+}
+
+// Сплэш особых фаз, пока вопрос ещё не открыт
+function renderSpecial() {
+  let el = $('special-splash');
+  if (!el) {
+    el = h('div', { id: 'special-splash', class: 'card', hidden: '' });
+    $('screen').append(el);
+  }
+  const sp = S.special;
+  const show = sp && ['cat', 'auction'].includes(S.phase)
+    || (S.phase === 'final' && sp?.stage !== 'answer' && sp?.stage !== 'judge');
+  el.hidden = !show;
+  if (!show) return;
+  el.replaceChildren();
+  if (S.phase === 'cat') {
+    el.append(h('div', { class: 'special-splash-text' }, '🐈 Кот в мешке!'));
+  } else if (S.phase === 'auction') {
+    el.append(h('div', { class: 'special-splash-text' }, '🔨 Аукцион!'),
+      h('p', { class: 'muted center' }, `Ставок: ${sp.betCount}/${sp.playersCount}`));
+  } else if (S.phase === 'final') {
+    el.append(h('div', { class: 'special-splash-text' }, `★ Финал: ${sp.title}`),
+      h('p', { class: 'muted center' }, `Ставок: ${sp.stakedIds.length}/${sp.eligibleIds.length}`));
+  }
 }
 
 function renderScores() {
@@ -148,7 +198,7 @@ function renderBoard() {
 function renderQuestion() {
   const card = $('question-card');
   const g = S.game;
-  const show = ['question', 'buzz', 'answer', 'reveal'].includes(S.phase) && g?.question;
+  const show = ['question', 'buzz', 'answer', 'reveal', 'final'].includes(S.phase) && g?.question;
   card.hidden = !show;
   if (!show) return;
   $('q-price').textContent = `${g.question.themeTitle || ''} · ${g.question.price}`;
@@ -173,6 +223,7 @@ function renderQuestion() {
     question: 'Внимание, вопрос!',
     buzz: g.buzz.open ? 'Кнопка открыта!' : '',
     answer: winner ? `Отвечает: ${winner.nick}` : '',
+    final: S.special?.stage === 'answer' ? 'Финал: пишем ответы!' : '',
     reveal: '',
   };
   $('status-text').textContent = g.paused ? 'Пауза' : texts[S.phase] || '';

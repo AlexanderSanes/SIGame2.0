@@ -222,3 +222,35 @@ button.success:hover { background: #46c95c; }
 /* Табло: медиа крупнее */
 .board-screen .q-media .media-img { max-height: 50dvh; }
 .board-screen .q-media .media-youtube { max-width: 900px; }
+
+/* --- этап 6: особые механики, реакции, звук --- */
+.mute-btn {
+  position: fixed; top: 10px; right: 10px; z-index: 60;
+  background: rgba(30, 34, 53, 0.8); border: 1px solid #2e3450; border-radius: 8px;
+  font-size: 18px; padding: 4px 8px; cursor: pointer;
+}
+
+.reaction-bar {
+  position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 50;
+  background: rgba(30, 34, 53, 0.9); border-radius: 12px; padding: 6px 10px;
+}
+.reaction-btn { font-size: 24px; background: none; border: none; cursor: pointer; padding: 2px 6px; }
+.reaction-btn:disabled { opacity: 0.4; cursor: default; }
+
+.reaction-float {
+  position: fixed; bottom: 15%; z-index: 70; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center;
+  animation: reaction-rise 2s ease-out forwards;
+}
+.reaction-emoji { font-size: 56px; }
+.reaction-nick { color: #fff; font-size: 16px; text-shadow: 0 1px 4px #000; }
+@keyframes reaction-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  15% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translateY(-160px); opacity: 0; }
+}
+
+.special-splash-text { font-size: 42px; text-align: center; padding: 24px 0 8px; }
+.final-entry { border-bottom: 1px solid #2e3450; padding: 6px 0; }
