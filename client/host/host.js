@@ -81,7 +81,7 @@ function fillSettings(s) {
   $('set-false-start').checked = Boolean(s.falseStart);
 }
 
-async function saveSettings() {
+async function saveSettings({ notify = true } = {}) {
   try {
     const res = await call('settings:update', {
       picker: $('set-picker').value,
@@ -91,20 +91,19 @@ async function saveSettings() {
       falseStart: $('set-false-start').checked,
     });
     S.settings = res.settings;
-    toast('Настройки сохранены');
+    if (notify) toast('Настройки сохранены');
+    return true;
   } catch (e) {
     toast(e.message, 'error');
+    return false;
   }
 }
 
-$('save-settings').addEventListener('click', saveSettings);
-// галочки и выбор применяем сразу, без кнопки — иначе легко забыть сохранить
-for (const id of ['set-picker', 'set-answer-time', 'set-buzz-timeout', 'set-show-question', 'set-false-start']) {
-  $(id).addEventListener('change', saveSettings);
-}
+$('save-settings').addEventListener('click', () => saveSettings());
 
 $('start-btn').addEventListener('click', async () => {
   try {
+    if (!await saveSettings({ notify: false })) return;
     await call('game:start', {});
   } catch (e) {
     toast(e.message, 'error');

@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../client/host/host.js',import.meta.url),'utf8');
+const nodes=new Map();const calls=[];const notifications=[];let fail=false;
+const $=id=>{if(!nodes.has(id))nodes.set(id,{value:'7',checked:false,addEventListener(e,fn){this[e]=fn;}});return nodes.get(id);};
+const context=vm.createContext({$,S:{},toast:(...a)=>notifications.push(a),call:async(event,payload)=>{calls.push(event);if(fail)throw Error('Ошибка сохранения');return {settings:payload};}});
+vm.runInContext(source.slice(source.indexOf('async function saveSettings('),source.indexOf('// ---------- Загрузка медиафайлов')),context);
+assert.equal($('set-answer-time').change,undefined);
+await $('save-settings').click();assert.deepEqual(calls,['settings:update']);assert.equal(notifications[0][0],'Настройки сохранены');
+calls.length=0;notifications.length=0;
+await $('start-btn').click();assert.deepEqual(calls,['settings:update','game:start']);assert.equal(notifications.length,0);
+calls.length=0;fail=true;
+await $('start-btn').click();assert.deepEqual(calls,['settings:update']);assert.equal(notifications[0][1],'error');
+console.log('PASS: нет автосохранения; явное сохранение; сохранение перед стартом; тихий старт; ошибка блокирует старт');
