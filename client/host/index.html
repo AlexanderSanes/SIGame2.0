@@ -17,15 +17,17 @@
     </div>
 
     <div id="panel" hidden>
-      <div class="card" id="lobby-card">
-        <div class="muted center">Код комнаты</div>
-        <div class="room-code" id="room-code"></div>
-        <div class="muted center" id="pack-title"></div>
-        <div class="qr-box">
-          <img id="qr" alt="QR-код для подключения">
-          <div class="join-link" id="join-link"></div>
-          <button class="secondary" id="copy-link">Скопировать ссылку</button>
-          <button class="secondary" id="open-screen">Открыть табло</button>
+      <div class="card room-access">
+        <img class="room-qr" id="qr" alt="QR-код для входа игрокам" hidden>
+        <div class="room-access-info">
+          <div class="muted">Вход для игроков</div>
+          <div class="room-code" id="room-code"></div>
+          <div class="muted" id="pack-title"></div>
+          <a class="join-link" id="join-link"></a>
+          <div class="room-access-actions">
+            <button class="secondary" id="copy-link">Скопировать ссылку</button>
+            <a class="btn secondary" id="open-screen" target="_blank" rel="noopener">Открыть табло</a>
+          </div>
         </div>
       </div>
 

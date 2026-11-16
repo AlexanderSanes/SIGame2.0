@@ -147,26 +147,26 @@ input[type='text']:focus { border-color: var(--accent); }
   padding: 8px;
 }
 
-/* QR */
-.qr-box { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.qr-box img {
-  width: min(260px, 70vw);
+/* Подключение к комнате */
+.room-access { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.room-access-info { min-width: 0; }
+.room-access-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.room-qr {
+  width: 120px;
+  max-width: 100%;
   border-radius: var(--radius);
   background: #fff;
   padding: 8px;
 }
-.room-code {
-  font-size: 2.6rem;
+.room-access .room-code {
+  font-size: 2rem;
   font-weight: 800;
-  letter-spacing: 0.35em;
-  text-align: center;
-  text-indent: 0.35em;
+  letter-spacing: 0.2em;
 }
 .join-link {
-  word-break: break-all;
+  display: block;
+  overflow-wrap: anywhere;
   font-size: 0.85rem;
-  color: var(--text-dim);
-  text-align: center;
 }
 
 /* Тосты */

@@ -2,6 +2,7 @@ import { socket, call } from '/shared/socket.js';
 import { h, avatarEl } from '/shared/ui.js';
 import { renderMedia, applyMediaControl, preloadMedia } from '/shared/media.js';
 import { playSound, muteButton } from '/shared/sounds.js';
+import { roomJoinUrl, loadJoinQr } from '/shared/room-access.js';
 
 const roomId = location.pathname.match(/\/room\/([A-Z2-9]+)\/screen/i)?.[1]?.toUpperCase();
 
@@ -11,6 +12,7 @@ const S = { phase: null, players: [], game: null, standings: null, special: null
 let lastMediaKey = null;
 let lastAnswerRendered = false;
 let currentPlayers = []; // отрендеренные аудио/видео текущего вопроса (для media:control)
+let loadingQr = false;
 
 document.body.append(muteButton());
 
@@ -30,11 +32,25 @@ async function watch() {
   try {
     const { state } = await call('board:watch', { roomId });
     applyState(state);
+    renderRoomAccess();
   } catch (e) {
     $('empty').hidden = false;
     $('screen').hidden = true;
+    $('room-access').hidden = true;
     $('empty-text').textContent = e.message;
   }
+}
+
+async function renderRoomAccess() {
+  $('room-code').textContent = roomId;
+  $('room-access').hidden = false;
+  const qr = $('qr');
+  if (!qr.hidden || loadingQr) return;
+  loadingQr = true;
+  try {
+    await loadJoinQr(qr, await roomJoinUrl(roomId));
+  } catch { /* Код комнаты остаётся доступен для ручного входа. */ }
+  finally { loadingQr = false; }
 }
 
 function onReconnectSafe() {

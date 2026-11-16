@@ -2,6 +2,7 @@ import { socket, call, onReconnect } from '/shared/socket.js';
 import { h, toast, avatarEl, copyText } from '/shared/ui.js';
 import { renderMedia, preloadMedia } from '/shared/media.js';
 import { playSound, muteButton } from '/shared/sounds.js';
+import { roomJoinUrl, loadJoinQr } from '/shared/room-access.js';
 
 const roomId = new URLSearchParams(location.search).get('room')?.toUpperCase();
 const hostToken = roomId && localStorage.getItem(`sigame:host:${roomId}`);
@@ -50,26 +51,19 @@ async function auth() {
 
 async function renderHeader() {
   $('room-code').textContent = roomId;
-  // joinUrl приходит с сервера: если ведущий сидит через localhost,
-  // сервер подставит LAN-IP, чтобы ссылка/QR работали с телефонов
-  let joinUrl = `${location.origin}/player/?room=${roomId}`;
-  try {
-    const info = await (await fetch(`/api/rooms/${roomId}`)).json();
-    if (info.ok) joinUrl = info.joinUrl;
-  } catch { /* остаёмся на location.origin */ }
+  $('open-screen').href = `/room/${encodeURIComponent(roomId)}/screen`;
+  const joinUrl = await roomJoinUrl(roomId);
   $('join-link').textContent = joinUrl;
-  try {
-    const res = await fetch(`/api/qr?text=${encodeURIComponent(joinUrl)}`);
-    const { dataUrl } = await res.json();
-    $('qr').src = dataUrl;
-  } catch {
-    toast('Не удалось сгенерировать QR-код', 'error');
-  }
+  $('join-link').href = joinUrl;
   $('copy-link').onclick = async () => {
     const ok = await copyText(joinUrl);
     toast(ok ? 'Ссылка скопирована' : 'Не удалось скопировать — скопируйте вручную', ok ? 'info' : 'error');
   };
-  $('open-screen').onclick = () => window.open(`/room/${roomId}/screen`, '_blank');
+  try {
+    await loadJoinQr($('qr'), joinUrl);
+  } catch {
+    toast('Не удалось сгенерировать QR-код', 'error');
+  }
 }
 
 // ---------- Настройки и старт ----------
@@ -394,7 +388,6 @@ function render() {
   document.body.dataset.phase = S.phase;
   const inLobby = S.phase === 'lobby';
   const isOver = S.phase === 'game_over';
-  $('lobby-card').hidden = !inLobby;
   $('media-card').hidden = !inLobby;
   $('settings-card').hidden = !inLobby;
   $('players-card').hidden = !inLobby;
