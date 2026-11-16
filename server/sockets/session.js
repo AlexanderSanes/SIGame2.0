@@ -42,6 +42,7 @@ export function bindSession(io, socket, rooms, room, role, playerId = null) {
   for (const channel of socket.rooms) if (channel !== socket.id) socket.leave(channel);
   socket.join(room.id);
   if (role === 'host' || role === 'board' || player?.role === 'spectator') socket.join(`${room.id}:full`);
+  if (role === 'host') socket.join(`${room.id}:host`);
   socket.data = { role, roomId: room.id, ...(playerId ? { playerId } : {}) };
   if (role === 'host') room.hostSocketId = socket.id;
   if (player) {

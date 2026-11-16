@@ -88,7 +88,8 @@ socket.on('question:show', (q) => {
   // новый вопрос — кнопка сброшена, никаких остатков от прошлого вопроса
   S.game.buzz = { open: false, winnerId: null, lockedIds: [] };
   S.game.paused = false;
-  S.game.question = { ...S.game.question, ...q };
+  S.game.revealed = false;
+  S.game.question = q;
   render();
 });
 socket.on('buzz:state', ({ open, lockedIds }) => {
@@ -123,7 +124,13 @@ socket.on('auction:state', ({ betCount, playersCount }) => {
   if (S.special?.kind === 'auction') Object.assign(S.special, { betCount, playersCount });
   render();
 });
-socket.on('final:start', ({ title }) => { playSound('special'); S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [] }; render(); });
+socket.on('final:start', ({ title }) => {
+  playSound('special');
+  ensureGame();
+  S.game.question = null;
+  S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [] };
+  render();
+});
 socket.on('final:state', (p) => { if (S.special?.kind === 'final') Object.assign(S.special, p); render(); });
 socket.on('answer:verdict', ({ correct }) => playSound(correct ? 'correct' : 'wrong'));
 socket.on('game:over', ({ standings }) => {
@@ -229,7 +236,14 @@ function renderQuestion() {
   const g = S.game;
   const show = ['question', 'buzz', 'answer', 'reveal', 'final'].includes(S.phase) && g?.question;
   card.hidden = !show;
-  if (!show) return;
+  if (!show) {
+    if (lastMediaKey !== null) {
+      lastMediaKey = null;
+      currentPlayers = renderMedia($('q-media'), []);
+      $('q-answer-media').replaceChildren();
+    }
+    return;
+  }
   $('q-price').textContent = `${g.question.themeTitle || ''} · ${g.question.price}`;
   $('q-text').textContent = g.question.text || '';
   $('q-answer').textContent = g.revealed && g.question.answer ? `Ответ: ${g.question.answer}` : '';

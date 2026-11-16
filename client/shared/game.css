@@ -157,6 +157,57 @@ button.cell:not(:disabled):hover { background: #313852; }
 }
 .cat-fields :is(select, input):focus-visible { outline: 2px solid #a7bcff; outline-offset: 2px; }
 
+.host-question { gap: 18px; }
+.host-question-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.host-question-heading h2 { font-size: 1.15rem; overflow-wrap: anywhere; }
+.host-question-heading span {
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: #d0dbff;
+  background: #303d66;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+.host-question :is(.question-text, #status-text) { text-align: left; }
+.host-question .question-text { font-weight: 650; }
+.host-question .media-audio { max-width: none; color-scheme: dark; }
+.host-question-answer {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  background: #1b352e;
+  border-radius: 10px;
+  color: #c2f1d2;
+}
+.host-question-answer span { font-size: 0.8rem; font-weight: 650; }
+.host-question-answer #q-answer { font-weight: 650; overflow-wrap: anywhere; }
+.host-question #status-text { color: #acb8d4; font-size: 0.9rem; }
+.host-question :is(.question-text, #q-price, #status-text):empty { display: none; }
+
+.auction-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.auction-heading p { color: #acb8d4; font-size: 0.85rem; }
+.auction-accepted { margin-top: 12px; color: #bde9cd; font-weight: 650; }
+.auction-form { display: grid; gap: 8px; margin-top: 14px; }
+.auction-form label { font-weight: 650; }
+.auction-form .muted { font-size: 0.85rem; }
+.auction-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.auction-fields input {
+  flex: 1 1 120px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #424b69;
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text);
+  color-scheme: dark;
+  font: inherit;
+}
+.auction-fields button { flex: 1 1 auto; }
+.auction-fields input:focus-visible { outline: 2px solid #a7bcff; outline-offset: 2px; }
+body[data-phase="auction"] #status-card > :is(.question-price, .question-text, .answer-text, .countdown, #status-text):empty { display: none; }
+
 /* Пульт ведущего: поле слева, управление справа */
 .host-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
 @media (min-width: 960px) {

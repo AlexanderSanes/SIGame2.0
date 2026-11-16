@@ -85,13 +85,19 @@
               <div class="board-table" id="board-grid"></div>
             </div>
 
-            <div class="card" id="question-card" hidden>
-              <div class="question-price" id="q-price"></div>
+            <div class="card host-question" id="question-card" hidden>
+              <header class="host-question-heading">
+                <h2 id="q-theme"></h2>
+                <span id="q-price"></span>
+              </header>
               <div class="question-text" id="q-text"></div>
               <div class="q-media" id="q-media"></div>
-              <div class="answer-text" id="q-answer"></div>
-              <div class="q-media" id="q-answer-media"></div>
-              <p class="center" id="status-text"></p>
+              <div class="host-question-answer" id="host-answer" hidden>
+                <span>Правильный ответ</span>
+                <div id="q-answer"></div>
+                <div class="q-media" id="q-answer-media"></div>
+              </div>
+              <p id="status-text"></p>
               <div class="countdown" id="countdown"></div>
             </div>
 

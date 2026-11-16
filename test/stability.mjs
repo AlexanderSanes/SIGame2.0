@@ -112,6 +112,8 @@ try {
   await ok(br.s, 'auction:bet', { amount: 200 });
   await restart(); hr = await resume(ht); br = await resume(bt); ar = await resume(at);
   check('аукцион после рестарта сохраняет свою скрытую ставку', hr.state.phase === 'auction' && br.state.game.auction.myBet === 200 && ar.state.game.auction.myBet === null);
+  const equalBet = await call(br.s, 'auction:bet', { amount: 200 });
+  check('после рестарта повтор текущей ставки отклоняется', !equalBet.ok && /выше текущей/.test(equalBet.error));
   await ok(hr.s, 'auction:close'); await ok(hr.s, 'answer:judge', { correct: true });
   await ok(hr.s, 'round:end');
   await ok(br.s, 'final:stake', { amount: 300 });

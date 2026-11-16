@@ -88,8 +88,8 @@ function emitBuzzState(io, room) {
 }
 
 function sendQuestionToHost(io, room) {
-  if (room.hostSocketId && room.game.question) {
-    io.to(room.hostSocketId).emit('question:answer', { answer: room.game.question.answer });
+  if (room.game.question) {
+    io.to(`${room.id}:host`).emit('question:answer', { answer: room.game.question.answer });
   }
 }
 
@@ -104,7 +104,7 @@ function emitQuestion(io, room) {
     text: g.question.text,
     media: g.question.media || [],
   };
-  if (room.settings.showQuestionToPlayers) {
+  if (room.settings.showQuestionToPlayers || room.phase === 'final') {
     io.to(room.id).emit('question:show', payload);
   } else {
     io.to(fullRoom(room.id)).emit('question:show', payload);
@@ -254,6 +254,9 @@ export function auctionBet(io, rooms, room, playerId, amount) {
   const bet = strictInteger(amount);
   if (!Number.isFinite(bet) || bet < min || bet > max) {
     throw new Error(`Ставка от ${min} до ${max}`);
+  }
+  if (Object.values(g.auction.bets).some(({ amount: current }) => bet <= current)) {
+    throw new Error('Ставка должна быть выше текущей');
   }
   g.auction.bets[playerId] = { amount: bet, ts: Date.now() };
   rooms.touch(room);
@@ -566,8 +569,7 @@ export function finalStartAnswers(io, rooms, room) {
   rooms.touch(room);
   room._timers.final = setTimeout(() => finalCloseAnswers(io, rooms, room), FINAL_ANSWER_MS);
   // финальный вопрос видят все, включая игроков
-  const q = g.question;
-  io.to(room.id).emit('question:show', { themeIdx: -1, qIdx: -1, themeTitle: q.themeTitle, price: 0, text: q.text, media: q.media });
+  emitQuestion(io, room);
   emitFinalState(io, rooms, room);
   emitPhase(io, room);
   logAction(io, rooms, room, 'Финал: вопрос открыт, 30 секунд на ответы');
@@ -712,6 +714,7 @@ export function undo(io, rooms, room) {
     if (room.phase === 'game_over') {
       transition(room, 'final');
       io.to(room.id).emit('final:start', { title: room.pack.final.title });
+      emitQuestion(io, room);
     }
     emitFinalState(io, rooms, room);
     sendFinalAnswersToHost(io, room);

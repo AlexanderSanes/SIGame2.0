@@ -265,7 +265,8 @@ socket.on('question:show', (q) => {
   // новый вопрос — кнопка сброшена, никаких остатков от прошлого вопроса
   S.game.buzz = { open: false, winnerId: null, lockedIds: [] };
   S.game.paused = false;
-  S.game.question = { ...S.game.question, ...q };
+  S.game.revealed = false;
+  S.game.question = q;
   render();
 });
 
@@ -330,6 +331,8 @@ socket.on('auction:result', ({ bets }) => {
 });
 socket.on('final:start', ({ title }) => {
   playSound('special');
+  ensureGame();
+  S.game.question = null;
   S.special = { kind: 'final', title, stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [] };
   S.finalAnswers = null;
   render();
@@ -501,16 +504,22 @@ async function selectCell(themeIdx, qIdx) {
 function renderQuestion() {
   const card = $('question-card');
   const g = S.game;
-  if (S.phase === 'board' || !g?.question) {
+  if (S.phase === 'board' || !g?.question || (S.phase === 'final' && S.special?.stage === 'stake')) {
     card.hidden = true;
+    if (lastMediaKey !== null) {
+      lastMediaKey = null;
+      $('q-media').replaceChildren();
+      $('q-answer-media').replaceChildren();
+    }
     stopCountdown();
     return;
   }
   card.hidden = false;
-  $('q-price').textContent = `${g.question.themeTitle || ''} · ${g.question.price}`;
+  $('q-theme').textContent = g.question.themeTitle || '';
+  $('q-price').textContent = g.question.qIdx === -1 ? '' : g.question.price;
   $('q-text').textContent = g.question.text || '';
-  $('q-answer').textContent = g.question.answer
-    ? `Ответ: ${g.question.answer}` : '';
+  $('q-answer').textContent = g.question.answer || '';
+  $('host-answer').hidden = !g.question.answer;
 
   // медиа рендерим один раз на вопрос, чтобы не дёргать воспроизведение
   const mediaKey = `${g.question.themeIdx}:${g.question.qIdx}:${g.roundIndex}`;

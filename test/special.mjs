@@ -84,6 +84,7 @@ async function main() {
     const [a, b, v] = players;
     // Аня в минусе: ставка может быть только минимальной
     await ok(host, 'score:adjust', { playerId: a.id, delta: -300 });
+    await ok(host, 'score:adjust', { playerId: b.id, delta: 300 });
 
     const aucStart = wait(host, 'auction:start');
     await ok(host, 'board:select', { themeIdx: 1, qIdx: 0 });
@@ -100,21 +101,24 @@ async function main() {
     r = await call(b.socket, 'auction:bet', { amount: 100500 });
     check('аукцион: ставка выше счёта отклонена', r.ok === false);
 
-    // равные ставки: все трое ставят по 100 (максимум при нулевом/минусовом счёте),
-    // Аня поставила первой — она и выигрывает
-    await ok(b.socket, 'auction:bet', { amount: 100 });
-    await sleep(20);
-    await ok(v.socket, 'auction:bet', { amount: 100 });
+    r = await call(b.socket, 'auction:bet', { amount: 100 });
+    check('аукцион: нельзя повторить ставку другого игрока', !r.ok && /выше текущей/.test(r.error));
+    await ok(b.socket, 'auction:bet', { amount: 150 });
+    r = await call(b.socket, 'auction:bet', { amount: 150 });
+    check('аукцион: нельзя повторить собственную ставку', !r.ok);
+    r = await call(v.socket, 'auction:bet', { amount: 100 });
+    check('аукцион: нельзя поставить ниже действующей ставки', !r.ok && /выше текущей/.test(r.error));
+    await ok(b.socket, 'auction:bet', { amount: 200 });
     const winner = wait(host, 'buzz:winner');
     await ok(host, 'auction:close', {});
     const w = await winner;
-    check('аукцион: при равных ставках побеждает поставивший раньше', w.playerId === a.id);
+    check('аукцион: отвечает игрок, повысивший ставку до 200', w.playerId === b.id);
 
     const scoresP = wait(host, 'score:update');
     await ok(host, 'answer:judge', { correct: true });
     const scores = (await scoresP).scores;
-    const aScore = scores.find((s) => s.id === a.id)?.score;
-    check('аукцион: на кону ставка (100), а не цена ячейки', aScore === -200);
+    const bScore = scores.find((s) => s.id === b.id)?.score;
+    check('аукцион: на кону ставка (200), а не цена ячейки', bScore === 500);
     host.close(); players.forEach((p) => p.socket.close());
   }
 
@@ -139,6 +143,9 @@ async function main() {
     // Вова в минусе — в финале не участвует
     await ok(host, 'score:adjust', { playerId: v.id, delta: -100 });
 
+    const previous = wait(host, 'question:answer');
+    await ok(host, 'board:select', { themeIdx: 0, qIdx: 0 });
+    const previousAnswer = (await previous).answer;
     const finalStart = wait(host, 'final:start');
     await ok(host, 'round:end', {}); // единственный раунд → финал
     const fs = await finalStart;
@@ -152,9 +159,12 @@ async function main() {
     // Борис НЕ ставит — краевой случай «игрок без ставки»
 
     const qshow = wait(a.socket, 'question:show');
+    const hostAnswer = wait(host, 'question:answer');
     await ok(host, 'final:go', {});
     const q = await qshow;
     check('финал: вопрос показан игрокам с текстом', q.text === 'Столица Австралии?');
+    check('финал: правильный ответ обновился у ведущего и скрыт у игрока',
+      (await hostAnswer).answer === 'Канберра' && previousAnswer !== 'Канберра' && q.answer === undefined);
 
     r = await call(b.socket, 'final:answer', { text: 'Сидней' });
     check('финал: игрок без ставки не может отвечать', r.ok === false);

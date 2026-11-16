@@ -209,7 +209,8 @@ socket.on('question:show', (q) => {
   // новый вопрос — кнопка сброшена, никаких остатков от прошлого вопроса
   S.game.buzz = { open: false, winnerId: null, lockedIds: [] };
   S.game.paused = false;
-  S.game.question = { ...S.game.question, ...q };
+  S.game.revealed = false;
+  S.game.question = q;
   render();
 });
 
@@ -273,8 +274,10 @@ socket.on('auction:start', ({ minBet }) => {
   S.special = { kind: 'auction', minBet, myBet: null, betCount: 0, playersCount: 0 };
 });
 socket.on('auction:state', ({ betCount, playersCount }) => {
-  if (S.special?.kind === 'auction') Object.assign(S.special, { betCount, playersCount });
-  renderSpecial();
+  if (S.special?.kind !== 'auction') return;
+  Object.assign(S.special, { betCount, playersCount });
+  const count = $('auction-count');
+  if (count) count.textContent = `Ставок: ${betCount}/${playersCount}`;
 });
 socket.on('auction:result', () => {
   if (S.special?.kind === 'auction') S.special.closed = true;
@@ -282,6 +285,8 @@ socket.on('auction:result', () => {
 
 socket.on('final:start', () => {
   playSound('special');
+  ensureGame();
+  S.game.question = null;
   S.special = { kind: 'final', stage: 'stake', stakedIds: [], answeredIds: [], eligibleIds: [], myStake: null, myAnswer: null };
 });
 socket.on('final:state', (p) => {
@@ -482,7 +487,7 @@ function renderStatus() {
   const texts = {
     question: 'Идёт вопрос… жди сигнала ведущего',
     cat: 'Кот в мешке! 🐈 Ведущий выбирает, кому достанется вопрос',
-    auction: 'Аукцион! Сделай свою ставку',
+    auction: isSpectator() ? 'Аукцион · Приём ставок' : '',
     final: S.special?.stage === 'stake' ? 'Финальный раунд! Сделай ставку'
       : S.special?.stage === 'answer' ? 'Пиши ответ — 30 секунд!'
       : 'Ведущий проверяет ответы…',
@@ -514,23 +519,41 @@ function renderSpecial() {
 
   if (S.phase === 'auction' && sp.kind === 'auction') {
     const me = S.players.find((p) => p.id === myId);
-    const min = sp.minBet;
-    const max = Math.max(me?.score ?? 0, min);
-    if (sp.myBet != null) {
-      box.append(h('p', { class: 'center' }, `Ставка принята: ${sp.myBet}`),
-        h('p', { class: 'muted center' }, `Ставок: ${sp.betCount}/${sp.playersCount}`));
-      return;
-    }
-    const input = h('input', { type: 'number', min: String(min), max: String(max), value: String(min) });
-    box.append(
-      h('p', { class: 'muted center' }, `Ставка от ${min} до ${max}`),
-      h('div', { class: 'q-row' }, input,
-        h('button', { onclick: async () => {
-          const res = await call('auction:bet', { amount: Number(input.value) });
-          if (res?.ok) { sp.myBet = Number(input.value); renderSpecial(); }
-          else toast(res?.error || 'Ставка не принята', 'error');
-        } }, 'Поставить')),
-    );
+    const max = Math.max(me?.score ?? 0, sp.minBet);
+    const min = sp.myBet == null ? sp.minBet : sp.myBet + 1;
+    box.append(h('div', { class: 'auction-heading' },
+      h('h2', {}, 'Аукцион'),
+      h('p', { id: 'auction-count' }, `Ставок: ${sp.betCount}/${sp.playersCount}`)));
+    if (sp.myBet != null) box.append(h('p', { class: 'auction-accepted' }, `Ваша ставка · ${sp.myBet}`));
+    if (min > max) return;
+    const hint = min === max ? `Сумма по вашему счёту: ${min}` : `Лимиты по вашему счёту: ${min}–${max}`;
+    const input = h('input', {
+      id: 'auction-amount', type: 'number', min, max, required: '', inputmode: 'numeric',
+      'aria-describedby': 'auction-hint', value: sp.draft ?? min,
+      oninput: (event) => { sp.draft = event.target.value; },
+    });
+    const submit = h('button', { type: 'submit' }, sp.myBet == null ? 'Поставить' : 'Повысить ставку');
+    submit.disabled = Boolean(sp.pending);
+    box.append(h('form', { class: 'auction-form', onsubmit: async (event) => {
+      event.preventDefault();
+      if (sp.pending) return;
+      const amount = Number(input.value);
+      sp.pending = true;
+      submit.disabled = true;
+      try {
+        await call('auction:bet', { amount });
+        sp.myBet = amount;
+        sp.draft = null;
+      } catch (e) {
+        toast(e.message, 'error');
+      } finally {
+        sp.pending = false;
+        if (S.phase === 'auction' && S.special === sp) renderSpecial();
+      }
+    } },
+    h('label', { for: 'auction-amount' }, 'Ваша ставка'),
+    h('p', { id: 'auction-hint', class: 'muted' }, hint),
+    h('div', { class: 'auction-fields' }, input, submit)));
     return;
   }
 
