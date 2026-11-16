@@ -567,17 +567,32 @@ function renderSpecial() {
 
   if (S.phase === 'cat' && sp.kind === 'cat') {
     const players = S.players.filter((p) => p.role !== 'spectator');
-    const select = h('select', {}, ...players.map((p) => h('option', { value: p.id }, p.nick)));
-    const price = h('input', { type: 'number', min: '1', step: '50', value: String(sp.basePrice) });
+    const select = h('select', { id: 'cat-player', required: '' },
+      ...players.map((p) => h('option', { value: p.id }, p.nick)));
+    const price = h('input', {
+      id: 'cat-price', type: 'number', min: '1', max: '100000', required: '', value: String(sp.basePrice),
+    });
+    const submit = h('button', { type: 'submit' }, 'Передать вопрос');
+    submit.disabled = players.length === 0;
     card.append(
-      h('h2', {}, '🐈 Кот в мешке!'),
-      h('p', { class: 'muted' }, 'Выберите игрока и назначьте цену вопроса'),
-      h('div', { class: 'q-row' }, select, price,
-        h('button', { onclick: async () => {
-          try {
-            await call('cat:assign', { playerId: select.value, price: Number(price.value) });
-          } catch (e) { toast(e.message, 'error'); }
-        } }, 'Передать вопрос')),
+      h('h2', { class: 'cat-heading' },
+        h('span', { class: 'cat-icon', 'aria-hidden': 'true' }, '🐈'), 'Кот в мешке'),
+      h('form', { class: 'cat-form', onsubmit: async (event) => {
+        event.preventDefault();
+        if (submit.disabled) return;
+        submit.disabled = true;
+        try {
+          await call('cat:assign', { playerId: select.value, price: Number(price.value) });
+        } catch (e) {
+          toast(e.message, 'error');
+        } finally {
+          submit.disabled = false;
+        }
+      } },
+      h('div', { class: 'cat-fields' },
+        h('label', { for: 'cat-player' }, 'Кому передать', select),
+        h('label', { for: 'cat-price' }, 'Цена вопроса', price)),
+      submit),
     );
     return;
   }

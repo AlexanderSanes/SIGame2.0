@@ -119,6 +119,44 @@ button.cell:not(:disabled):hover { background: #313852; }
 }
 .settings-grid input[type='checkbox'] { width: 22px; height: 22px; }
 
+.cat-heading { display: flex; align-items: center; gap: 12px; }
+.cat-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #333556;
+  font-size: 1.35rem;
+}
+.cat-form { display: grid; gap: 16px; }
+.cat-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 12px;
+}
+.cat-fields label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #cbd3e9;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.cat-fields :is(select, input) {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #424b69;
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text);
+  color-scheme: dark;
+  font: inherit;
+  font-size: 1rem;
+}
+.cat-fields :is(select, input):focus-visible { outline: 2px solid #a7bcff; outline-offset: 2px; }
+
 /* Пульт ведущего: поле слева, управление справа */
 .host-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
 @media (min-width: 960px) {
