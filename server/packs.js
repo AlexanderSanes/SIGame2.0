@@ -33,6 +33,9 @@ const theme = z.object({
 
 const round = z.object({
   title: z.string().trim().max(200).min(1, 'Нет названия раунда'),
+  catPrices: z.tuple([z.number().int().positive(), z.number().int().positive()])
+    .refine(([low, high]) => low < high, 'Первая цена кота должна быть меньше второй')
+    .optional(),
   themes: z.array(theme).min(1, 'В раунде нет тем'),
 });
 

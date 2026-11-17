@@ -168,6 +168,7 @@ socket.on('lobby:players', (players) => {
   S.players = players;
   if (!lobby.hidden) renderLobby();
   if (!gameEl.hidden) renderScores();
+  if (S.phase === 'cat') renderStatus();
 });
 
 socket.on('game:phase', (p) => {
@@ -260,11 +261,16 @@ socket.on('answer:verdict', ({ playerId, correct }) => {
 });
 
 // ---------- особые механики ----------
-socket.on('cat:pending', () => {
+socket.on('cat:pending', (state) => {
   playSound('special');
   ensureGame();
   S.game.question = null; // до назначения прошлый вопрос не висит на экране
+  S.special = { kind: 'cat', ...state };
   toast('Кот в мешке! 🐈');
+});
+socket.on('cat:state', (state) => {
+  S.special = { kind: 'cat', ...state };
+  renderStatus();
 });
 
 socket.on('auction:start', ({ minBet }) => {
@@ -345,7 +351,7 @@ function applyState(state) {
     ? { kind: 'final', ...state.game.final }
     : state.phase === 'auction' && state.game?.auction
       ? { kind: 'auction', ...state.game.auction }
-      : state.phase === 'cat' ? { kind: 'cat' } : null;
+      : state.phase === 'cat' && state.game?.cat ? { kind: 'cat', ...state.game.cat } : null;
   preloadMedia(state.roundMedia);
   lastMediaKey = null;
   render();
@@ -486,7 +492,7 @@ function renderStatus() {
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {
     question: 'Идёт вопрос… жди сигнала ведущего',
-    cat: 'Кот в мешке! 🐈 Ведущий выбирает, кому достанется вопрос',
+    cat: '',
     auction: isSpectator() ? 'Аукцион · Приём ставок' : '',
     final: S.special?.stage === 'stake' ? 'Финальный раунд! Сделай ставку'
       : S.special?.stage === 'answer' ? 'Пиши ответ — 30 секунд!'
@@ -515,6 +521,37 @@ function renderSpecial() {
   box.replaceChildren();
   const sp = S.special;
   const g = S.game;
+  if (S.phase === 'cat' && sp?.kind === 'cat') {
+    const chooser = S.players.find((p) => p.id === sp.selectedByPlayerId);
+    const recipient = S.players.find((p) => p.id === sp.recipientId);
+    const canPass = !sp.recipientId && myId === sp.selectedByPlayerId && !isSpectator();
+    const canPrice = sp.recipientId && myId === sp.recipientId && !isSpectator();
+    let message = chooser?.connected && chooser.role !== 'spectator'
+      ? `${chooser.nick} выбирает, кому передать вопрос` : 'Ведущий выбирает, кому передать вопрос';
+    if (canPass) message = 'Выберите, кому передать вопрос';
+    if (recipient) message = canPrice ? 'Выберите цену вопроса' : `${recipient.nick} выбирает цену вопроса`;
+    box.append(h('h2', {}, `Кот в мешке! 🐈 ${message}`));
+    const act = (event, payload) => call(event, { questionId: sp.questionId, ...payload })
+      .catch((error) => toast(error.message, 'error'));
+    if (canPass) {
+      const players = S.players.filter((p) => p.connected && p.role !== 'spectator' && p.id !== myId);
+      if (!players.length) {
+        box.append(h('p', { class: 'muted' }, 'Нет подходящих игроков'));
+        return;
+      }
+      const select = h('select', { id: 'cat-recipient' },
+        ...players.map((p) => h('option', { value: p.id }, p.nick)));
+      box.append(h('form', { class: 'cat-form', onsubmit: (event) => {
+        event.preventDefault();
+        act('cat:assign', { playerId: select.value });
+      } },
+      h('div', { class: 'cat-fields' }, h('label', { for: 'cat-recipient' }, 'Кому передать', select)),
+      h('button', { type: 'submit' }, 'Передать вопрос')));
+    }
+    if (canPrice) box.append(h('div', { class: 'cat-price-options' },
+      ...sp.prices.map((price) => h('button', { onclick: () => act('cat:price', { price }) }, String(price)))));
+    return;
+  }
   if (!sp || !g || isSpectator()) return;
 
   if (S.phase === 'auction' && sp.kind === 'auction') {

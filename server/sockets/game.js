@@ -250,14 +250,22 @@ export function registerGameHandlers(io, socket, rooms) {
     }
   });
 
-  // cat:assign { playerId, price } — ведущий передаёт кота игроку за назначенную цену
-  socket.on('cat:assign', (payload, ack) => {
+  for (const [event, action] of [
+    ['cat:assign', (room, payload) => game.catAssign(io, rooms, room, payload.playerId, isHost() ? null : socket.data.playerId)],
+    ['cat:price', (room, payload) => {
+      if (!isPlayer()) throw new Error('Цену выбирает получатель вопроса');
+      game.catChoosePrice(io, rooms, room, socket.data.playerId, payload.price);
+    }],
+  ]) socket.on(event, (payload, ack) => {
     const done = reply(ack);
     try {
-      if (!isHost()) return done({ ok: false, error: 'Только ведущий' });
+      if (!isHost() && !isPlayer()) return done({ ok: false, error: 'Нужно войти в комнату' });
       const room = roomOf();
       if (!room) return done({ ok: false, error: 'Комната не найдена' });
-      game.catAssign(io, rooms, room, payload?.playerId, payload?.price);
+      if (room.phase !== 'cat' || payload?.questionId !== room.game.question.id) {
+        return done({ ok: false, error: 'Этот вопрос уже не активен' });
+      }
+      action(room, payload);
       done({ ok: true });
     } catch (e) {
       done({ ok: false, error: e.message });

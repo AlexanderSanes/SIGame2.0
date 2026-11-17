@@ -88,6 +88,11 @@ async function main() {
   check('невалидный пакет НЕ появился в списке', !r.data.packs.some((p) => p.title === 'Мой пакет'));
 
   // ---------- создание валидного ----------
+  valid.rounds[0].catPrices = [75, 425];
+  const badCatPrices = structuredClone(valid);
+  badCatPrices.rounds[0].catPrices = [75, 75];
+  r = await api('POST', '/api/packs', badCatPrices);
+  check('две одинаковые цены кота отклоняются', r.status === 400 && r.data.errors.some((e) => e.path.includes('catPrices')));
   r = await api('POST', '/api/packs', valid);
   check('валидный пакет создан', r.data.ok === true);
   const packId = r.data.pack.id;
@@ -137,6 +142,7 @@ async function main() {
   r = await api('POST', '/api/packs/import', exported);
   check('импорт восстанавливает пакет', r.data.ok === true);
   const restored = r.data.pack;
+  check('цены кота сохраняются при экспорте и импорте', restored.rounds[0].catPrices?.join() === '75,425');
   check('структура восстановлена полностью',
     restored.rounds[0].themes[0].questions[1].type === 'cat'
     && restored.rounds[0].themes[0].questions[0].answerMedia[0].src === mediaUrl);

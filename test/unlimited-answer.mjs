@@ -16,9 +16,12 @@ try{
  game.judge(io,rooms,room,true,{playerId:a.id,questionId:room.game.question.id,answerAttemptId:room.game.answerAttemptId});game.undo(io,rooms,room);check('undo сохраняет безлимит',room.phase==='answer'&&room.game.deadlineTs===null&&!room._timers.answer);
  game.skipQuestion(io,rooms,room);game.setPicker(io,rooms,room,b.id);game.selectCell(io,rooms,room,0,1);
  const restoredCat=rooms._deserialize(rooms._serialize(room));
- assert.throws(()=>game.catAssign(io,rooms,restoredCat,b.id,200),/выбравшему/);
+ assert.throws(()=>game.catAssign(io,rooms,restoredCat,b.id),/выбравшему/);
  check('запрет передачи кота выбравшему переживает восстановление',restoredCat.game.question.selectedByPlayerId===b.id);
- game.catAssign(io,rooms,room,a.id,200);check('кот отвечает без таймера',room.phase==='answer'&&room.game.deadlineTs===null&&!room._timers.answer);
+ game.catAssign(io,rooms,room,a.id,b.id);
+ const restoredRecipient=rooms._deserialize(rooms._serialize(room));
+ check('получатель кота и цены переживают восстановление',restoredRecipient.game.question.catRecipientId===a.id&&rooms.publicCat(restoredRecipient).prices.length===2);
+ game.catChoosePrice(io,rooms,room,a.id,rooms.publicCat(room).prices[0]);check('кот отвечает без таймера',room.phase==='answer'&&room.game.deadlineTs===null&&!room._timers.answer);
  game.skipQuestion(io,rooms,room);game.selectCell(io,rooms,room,1,0);game.auctionBet(io,rooms,room,b.id,100);game.auctionClose(io,rooms,room);check('аукцион отвечает без таймера',room.phase==='answer'&&room.game.deadlineTs===null&&!room._timers.answer);
  console.log(`Итого: ${checks} проверок`);
 }finally{for(const r of [...rooms.rooms.values()])rooms.deleteRoom(r);db.close();}

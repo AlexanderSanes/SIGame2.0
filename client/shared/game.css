@@ -130,6 +130,8 @@ button.cell:not(:disabled):hover { background: #313852; }
   font-size: 1.35rem;
 }
 .cat-form { display: grid; gap: 16px; }
+#special .cat-form, .cat-price-options { margin-top: 12px; }
+.cat-price-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .cat-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
@@ -206,7 +208,7 @@ button.cell:not(:disabled):hover { background: #313852; }
 }
 .auction-fields button { flex: 1 1 auto; }
 .auction-fields input:focus-visible { outline: 2px solid #a7bcff; outline-offset: 2px; }
-body[data-phase="auction"] #status-card > :is(.question-price, .question-text, .answer-text, .countdown, #status-text):empty { display: none; }
+body:is([data-phase="auction"], [data-phase="cat"]) #status-card > :is(.question-price, .question-text, .answer-text, .countdown, #status-text):empty { display: none; }
 
 /* Пульт ведущего: поле слева, управление справа */
 .host-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }

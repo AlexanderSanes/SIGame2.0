@@ -1,5 +1,6 @@
 import { renderMedia } from '/shared/media.js';
 import { h, toast } from '/shared/ui.js';
+import { catPricesForRound } from '/shared/cat-prices.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -206,7 +207,19 @@ function renderRound(round, ri) {
     } }, 'Удалить раунд'),
   );
 
-  const block = h('div', { class: 'round-block' }, head, themesBox,
+  const prices = catPricesForRound(round);
+  const catPrices = h('fieldset', { class: 'round-cat-prices' },
+    h('legend', {}, 'Цены для «Кота в мешке»'),
+    ...['Низкая цена', 'Высокая цена'].map((label, index) =>
+      h('label', {}, label, h('input', {
+        type: 'number', min: '1', step: '1', value: prices[index], 'data-path': `rounds.${ri}.catPrices.${index}`,
+        oninput: (event) => {
+          round.catPrices ??= [...prices];
+          round.catPrices[index] = Number(event.target.value);
+        },
+      }))),
+  );
+  const block = h('div', { class: 'round-block' }, head, catPrices, themesBox,
     h('button', { class: 'secondary media-add', onclick: () => {
       round.themes.push({ title: 'Новая тема', questions: [] });
       renderEditor();
@@ -402,6 +415,10 @@ function clientValidate(p) {
   if (!p.rounds?.length) errors.push({ path: 'rounds', label: 'Пакет', message: 'В пакете нет раундов' });
   p.rounds?.forEach((r, ri) => {
     if (!r.title?.trim()) errors.push({ path: `rounds.${ri}.title`, label: label(ri), message: 'Нет названия раунда' });
+    if (r.catPrices && (r.catPrices.length !== 2 || !r.catPrices.every((price) => Number.isSafeInteger(price) && price > 0)
+      || r.catPrices[0] >= r.catPrices[1])) {
+      errors.push({ path: `rounds.${ri}.catPrices.0`, label: label(ri), message: 'Укажите две положительные целые цены кота в порядке возрастания' });
+    }
     if (!r.themes?.length) errors.push({ path: `rounds.${ri}.themes`, label: label(ri), message: 'В раунде нет тем' });
     r.themes?.forEach((t, ti) => {
       if (!t.title?.trim()) errors.push({ path: `rounds.${ri}.themes.${ti}.title`, label: label(ri, ti), message: 'Нет названия темы' });

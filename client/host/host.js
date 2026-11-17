@@ -313,9 +313,13 @@ socket.on('answer:reveal', ({ answer, answerMedia }) => {
 socket.on('round:media', ({ urls }) => preloadMedia(urls));
 
 // ---------- особые механики ----------
-socket.on('cat:pending', ({ basePrice, selectedByPlayerId }) => {
+socket.on('cat:pending', (state) => {
   playSound('special');
-  S.special = { kind: 'cat', basePrice, selectedByPlayerId };
+  S.special = { kind: 'cat', ...state };
+  render();
+});
+socket.on('cat:state', (state) => {
+  S.special = { kind: 'cat', ...state };
   render();
 });
 socket.on('auction:start', ({ minBet }) => {
@@ -544,7 +548,7 @@ function renderQuestion() {
   const winner = S.players.find((p) => p.id === g.buzz.winnerId);
   const texts = {
     question: 'Читайте вопрос, затем разрешите ответы',
-    cat: 'Кот в мешке — назначьте игрока и цену ↓',
+    cat: '',
     auction: 'Аукцион — ждём ставки ↓',
     final: 'Финальный раунд ↓',
     buzz: 'Приём ответов…',
@@ -576,24 +580,30 @@ function renderSpecial() {
   card.hidden = false;
 
   if (S.phase === 'cat' && sp.kind === 'cat') {
-    const players = S.players.filter((p) => p.role !== 'spectator' && p.id !== sp.selectedByPlayerId);
+    card.append(h('h2', { class: 'cat-heading' },
+      h('span', { class: 'cat-icon', 'aria-hidden': 'true' }, '🐈'), 'Кот в мешке'));
+    if (sp.recipientId) {
+      const recipient = S.players.find((p) => p.id === sp.recipientId);
+      card.append(h('p', {}, `${recipient?.nick || 'Получатель'} выбирает цену: ${sp.prices.join(' или ')}`));
+      return;
+    }
+    const chooser = S.players.find((p) => p.id === sp.selectedByPlayerId);
+    if (chooser?.connected && chooser.role !== 'spectator') {
+      card.append(h('p', { class: 'muted' }, `${chooser.nick} выбирает, кому передать вопрос`));
+    }
+    const players = S.players.filter((p) => p.connected && p.role !== 'spectator' && p.id !== sp.selectedByPlayerId);
     const select = h('select', { id: 'cat-player', required: '' },
       ...(players.length ? players.map((p) => h('option', { value: p.id }, p.nick))
         : [h('option', { value: '' }, 'Нет подходящих игроков')]));
-    const price = h('input', {
-      id: 'cat-price', type: 'number', min: '1', max: '100000', required: '', value: String(sp.basePrice),
-    });
     const submit = h('button', { type: 'submit' }, 'Передать вопрос');
     submit.disabled = players.length === 0;
     card.append(
-      h('h2', { class: 'cat-heading' },
-        h('span', { class: 'cat-icon', 'aria-hidden': 'true' }, '🐈'), 'Кот в мешке'),
       h('form', { class: 'cat-form', onsubmit: async (event) => {
         event.preventDefault();
         if (submit.disabled) return;
         submit.disabled = true;
         try {
-          await call('cat:assign', { playerId: select.value, price: Number(price.value) });
+          await call('cat:assign', { questionId: sp.questionId, playerId: select.value });
         } catch (e) {
           toast(e.message, 'error');
         } finally {
@@ -601,8 +611,7 @@ function renderSpecial() {
         }
       } },
       h('div', { class: 'cat-fields' },
-        h('label', { for: 'cat-player' }, 'Кому передать', select),
-        h('label', { for: 'cat-price' }, 'Цена вопроса', price)),
+        h('label', { for: 'cat-player' }, 'Кому передать', select)),
       submit),
     );
     return;

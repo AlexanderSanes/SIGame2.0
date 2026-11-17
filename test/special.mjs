@@ -53,10 +53,13 @@ async function main() {
     await ok(host, 'game:setPicker', { playerId: b.id });
     const catPending = wait(host, 'cat:pending');
     await ok(b.socket, 'board:select', { themeIdx: 0, qIdx: 1 });
-    check('кот: событие содержит выбравшего игрока', (await catPending).selectedByPlayerId === b.id);
+    const cat = await catPending;
+    const { questionId, prices } = cat;
+    check('кот: событие содержит выбравшего игрока и две цены раунда',
+      cat.selectedByPlayerId === b.id && prices.join() === '100,300' && cat.text === undefined && cat.answer === undefined);
     const { state } = await ok(host, 'session:resume', { roomId, hostToken });
     check('кот: снимок сохраняет выбравшего игрока', state.game.cat.selectedByPlayerId === b.id);
-    const selfAssign = await call(host, 'cat:assign', { playerId: b.id, price: 200 });
+    const selfAssign = await call(b.socket, 'cat:assign', { questionId, playerId: b.id });
     check('кот: вопрос нельзя передать выбравшему игроку', !selfAssign.ok && /выбравшему/.test(selfAssign.error));
 
     let r = await call(host, 'buzz:press', {});
@@ -64,13 +67,24 @@ async function main() {
     r = await call(a.socket, 'buzz:press', {});
     check('кот: кнопка не работает до назначения', r.accepted === false);
 
-    r = await call(host, 'cat:assign', { playerId: a.id, price: -5 });
-    check('кот: отрицательная цена отклонена', r.ok === false);
+    r = await call(a.socket, 'cat:assign', { questionId, playerId: b.id });
+    check('кот: другой игрок не может назначить получателя', !r.ok);
+    r = await call(b.socket, 'cat:assign', { questionId: 'old-question', playerId: a.id });
+    check('кот: устаревший запрос передачи отклонён', !r.ok);
+    await ok(b.socket, 'cat:assign', { questionId, playerId: a.id });
+    const waiting = (await ok(host, 'session:resume', { roomId, hostToken })).state;
+    check('кот: получатель сохранён, пока выбирает цену', waiting.phase === 'cat' && waiting.game.cat.recipientId === a.id);
+    r = await call(b.socket, 'cat:price', { questionId, price: prices[0] });
+    check('кот: цену может выбрать только получатель', !r.ok);
+    r = await call(a.socket, 'cat:price', { questionId, price: 125 });
+    check('кот: произвольная цена отклонена', !r.ok);
 
     const winner = wait(host, 'buzz:winner');
-    await ok(host, 'cat:assign', { playerId: a.id, price: 777 });
+    const question = wait(host, 'question:show');
+    await ok(a.socket, 'cat:price', { questionId, price: prices[1] });
     const w = await winner;
     check('кот: назначенный игрок отвечает', w.playerId === a.id);
+    check('кот: вопрос открыт по выбранной цене', (await question).price === prices[1]);
 
     r = await call(b.socket, 'buzz:press', {});
     check('кот: второй игрок не может вмешаться', r.accepted === false);

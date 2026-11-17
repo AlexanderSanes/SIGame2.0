@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { saveSnapshot, deleteSnapshot, loadSnapshots } from './db.js';
 import { getPack, getDefaultPack } from './packs.js';
+import { catPricesForRound } from '../client/shared/cat-prices.js';
 
 // Без похожих символов: 0, O, 1, I, L исключены
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -144,6 +145,16 @@ export class RoomManager {
     if (room.history.length > HISTORY_LIMIT) room.history.shift();
   }
 
+  publicCat(room) {
+    const { question, roundIndex } = room.game;
+    return {
+      questionId: question.id,
+      selectedByPlayerId: question.selectedByPlayerId ?? null,
+      recipientId: question.catRecipientId ?? null,
+      prices: catPricesForRound(room.pack.rounds[roundIndex]),
+    };
+  }
+
   addLog(room, text) {
     const entry = { ts: Date.now(), text };
     room.log.push(entry);
@@ -237,10 +248,7 @@ export class RoomManager {
       state.question.answer = g.question.answer;
       state.question.answerMedia = g.question.answerMedia || [];
     }
-    if (room.phase === 'cat') state.cat = {
-      basePrice: g.question?.price,
-      selectedByPlayerId: g.question?.selectedByPlayerId ?? null,
-    };
+    if (room.phase === 'cat') state.cat = this.publicCat(room);
     if (room.phase === 'auction' && g.auction) {
       state.auction = { minBet: g.auction.minBet, betCount: Object.keys(g.auction.bets).length,
         playersCount: [...room.players.values()].filter((p) => p.role !== 'spectator').length };

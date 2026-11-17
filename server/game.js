@@ -174,7 +174,7 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
     g.question.selectedByPlayerId = selectedByPlayerId;
     transition(room, 'cat');
     rooms.touch(room);
-    io.to(room.id).emit('cat:pending', { themeTitle: theme.title, basePrice: q.price, themeIdx, qIdx, selectedByPlayerId });
+    io.to(room.id).emit('cat:pending', { themeTitle: theme.title, themeIdx, qIdx, ...rooms.publicCat(room) });
     emitPhase(io, room);
     logAction(io, rooms, room, `Кот в мешке: ${theme.title}`);
     return;
@@ -226,18 +226,28 @@ function startDirectAnswer(io, rooms, room, playerId) {
 
 // ---------- кот в мешке ----------
 
-export function catAssign(io, rooms, room, playerId, price) {
+export function catAssign(io, rooms, room, playerId, actorId = null) {
   const g = room.game;
-  if (room.phase !== 'cat') throw new Error('Сейчас нет кота в мешке');
+  if (room.phase !== 'cat' || g.question.catRecipientId) throw new Error('Сейчас нельзя передать вопрос');
+  if (actorId !== null && actorId !== g.question.selectedByPlayerId) throw new Error('Вопрос передаёт выбравший его игрок или ведущий');
   if (playerId && playerId === g.question.selectedByPlayerId) {
     throw new Error('Нельзя передать вопрос выбравшему его игроку');
   }
   const player = room.players.get(playerId);
-  if (!player || player.role === 'spectator') throw new Error('Игрок не найден');
+  if (!player?.connected || player.role === 'spectator') throw new Error('Игрок не подключён');
+  g.question.catRecipientId = playerId;
+  rooms.touch(room);
+  io.to(room.id).emit('cat:state', rooms.publicCat(room));
+  logAction(io, rooms, room, `Кот передан: ${player.nick}`);
+}
+
+export function catChoosePrice(io, rooms, room, playerId, price) {
+  const g = room.game;
+  if (room.phase !== 'cat' || playerId !== g.question.catRecipientId) throw new Error('Цену выбирает получатель вопроса');
   const p = strictInteger(price);
-  if (!Number.isFinite(p) || p <= 0 || p > 100000) throw new Error('Цена: положительное целое');
+  if (!rooms.publicCat(room).prices.includes(p)) throw new Error('Выберите одну из двух цен раунда');
   g.question.price = p;
-  logAction(io, rooms, room, `Кот передан: ${player.nick}, цена ${p}`);
+  logAction(io, rooms, room, `Цена кота: ${p}`);
   startDirectAnswer(io, rooms, room, playerId);
 }
 
@@ -826,6 +836,10 @@ export function handlePlayerRemoved(io, rooms, room, playerId) {
   const g = room.game;
   if (!g) return;
   room.history = room.history.filter((e) => e.playerId !== playerId || (room.players.has(playerId) && e.type === 'adjust'));
+  if (room.phase === 'cat' && g.question.catRecipientId === playerId) {
+    g.question.catRecipientId = null;
+    io.to(room.id).emit('cat:state', rooms.publicCat(room));
+  }
   if (g.auction) { delete g.auction.bets[playerId]; emitAuctionState(io, rooms, room); }
   if (g.final && room.phase === 'final') {
     g.final.eligibleIds = (g.final.eligibleIds || finalEligible(room).map((p) => p.id)).filter((id) => id !== playerId);
