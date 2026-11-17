@@ -215,6 +215,7 @@ function ensureGame() {
 socket.on('lobby:players', (players) => {
   S.players = players;
   if (S.phase === 'lobby') renderPlayers();
+  if (S.phase === 'cat') renderSpecial();
   renderScores();
   if (S.phase !== 'lobby' && S.phase !== 'game_over') renderPlayersCtrl();
 });
@@ -312,9 +313,9 @@ socket.on('answer:reveal', ({ answer, answerMedia }) => {
 socket.on('round:media', ({ urls }) => preloadMedia(urls));
 
 // ---------- особые механики ----------
-socket.on('cat:pending', ({ basePrice }) => {
+socket.on('cat:pending', ({ basePrice, selectedByPlayerId }) => {
   playSound('special');
-  S.special = { kind: 'cat', basePrice };
+  S.special = { kind: 'cat', basePrice, selectedByPlayerId };
   render();
 });
 socket.on('auction:start', ({ minBet }) => {
@@ -575,9 +576,10 @@ function renderSpecial() {
   card.hidden = false;
 
   if (S.phase === 'cat' && sp.kind === 'cat') {
-    const players = S.players.filter((p) => p.role !== 'spectator');
+    const players = S.players.filter((p) => p.role !== 'spectator' && p.id !== sp.selectedByPlayerId);
     const select = h('select', { id: 'cat-player', required: '' },
-      ...players.map((p) => h('option', { value: p.id }, p.nick)));
+      ...(players.length ? players.map((p) => h('option', { value: p.id }, p.nick))
+        : [h('option', { value: '' }, 'Нет подходящих игроков')]));
     const price = h('input', {
       id: 'cat-price', type: 'number', min: '1', max: '100000', required: '', value: String(sp.basePrice),
     });

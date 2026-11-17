@@ -78,7 +78,7 @@ async function main() {
 
   // ---------- Загрузка файлов ----------
   console.log('— загрузка —');
-  const ctx = await setupRoom({ buzzTimeoutSec: 5 });
+  const ctx = await setupRoom({ buzzTimeoutSec: 5, showQuestionToPlayers: false });
   const { roomId, hostToken } = ctx;
 
   const png = fs.readFileSync(path.join(root, 'client', 'testpack-media', 'flag.png'));

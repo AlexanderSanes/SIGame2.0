@@ -27,7 +27,7 @@ async function ok(s,e,p){const r=await call(s,e,p);assert.equal(r.ok,true,`${e}:
 async function setup(n=2,packId='test-pack-special'){
  const host=await connect();const created=await ok(host,'room:create',{packId});const auth={roomId:created.roomId,hostToken:created.hostToken};await ok(host,'session:resume',auth);
  const players=[];for(let i=0;i<n;i++){const s=await connect();const p=await ok(s,'room:join',{roomId:auth.roomId,nick:'Игрок'+i});players.push({...p,s});}
- await ok(host,'settings:update',{answerTimeSec:3,buzzTimeoutSec:5});
+ await ok(host,'settings:update',{answerTimeSec:3,buzzTimeoutSec:5,showQuestionToPlayers:false});
  const state=async()=> (await ok(host,'session:resume',auth)).state;
  return {host,auth,players,state,start:()=>ok(host,'game:start')};
 }

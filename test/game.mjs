@@ -42,7 +42,7 @@ async function setupRoom() {
   const host = await connect();
   const { roomId, hostToken } = await call(host, 'room:create', {});
   await call(host, 'session:resume', { roomId, hostToken });
-  await call(host, 'settings:update', { answerTimeSec: 3, buzzTimeoutSec: 5, picker: 'player' });
+  await call(host, 'settings:update', { answerTimeSec: 3, buzzTimeoutSec: 5, picker: 'player', showQuestionToPlayers: false });
   const pa = await connect();
   const ja = await call(pa, 'room:join', { roomId, nick: 'Аня' });
   const pb = await connect();

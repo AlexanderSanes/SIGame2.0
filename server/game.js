@@ -170,9 +170,11 @@ export function selectCell(io, rooms, room, themeIdx, qIdx, byHost = false) {
 
   if (type === 'cat') {
     // кот в мешке: вопрос не показываем, пока ведущий не выберет игрока и цену
+    const selectedByPlayerId = byHost ? null : g.pickerId;
+    g.question.selectedByPlayerId = selectedByPlayerId;
     transition(room, 'cat');
     rooms.touch(room);
-    io.to(room.id).emit('cat:pending', { themeTitle: theme.title, basePrice: q.price, themeIdx, qIdx });
+    io.to(room.id).emit('cat:pending', { themeTitle: theme.title, basePrice: q.price, themeIdx, qIdx, selectedByPlayerId });
     emitPhase(io, room);
     logAction(io, rooms, room, `Кот в мешке: ${theme.title}`);
     return;
@@ -227,6 +229,9 @@ function startDirectAnswer(io, rooms, room, playerId) {
 export function catAssign(io, rooms, room, playerId, price) {
   const g = room.game;
   if (room.phase !== 'cat') throw new Error('Сейчас нет кота в мешке');
+  if (playerId && playerId === g.question.selectedByPlayerId) {
+    throw new Error('Нельзя передать вопрос выбравшему его игроку');
+  }
   const player = room.players.get(playerId);
   if (!player || player.role === 'spectator') throw new Error('Игрок не найден');
   const p = strictInteger(price);

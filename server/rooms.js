@@ -17,10 +17,10 @@ function generateCode(length) {
 
 const DEFAULT_SETTINGS = {
   picker: 'player',            // 'player' — выбирает игрок с правом выбора, 'host' — только ведущий
-  unlimitedAnswerTime: false,
-  answerTimeSec: 7,            // таймер на ответ после нажатия
+  unlimitedAnswerTime: true,
+  answerTimeSec: 0,            // таймер на ответ после нажатия, 0 — без ограничения
   buzzTimeoutSec: 15,          // сколько кнопка открыта, потом вопрос сгорает
-  showQuestionToPlayers: false, // показывать ли текст вопроса на телефонах игроков
+  showQuestionToPlayers: true, // показывать ли текст вопроса на телефонах игроков
   falseStart: false            // нажатие до «Разрешить ответы» блокирует игрока на вопрос
 };
 
@@ -237,7 +237,10 @@ export class RoomManager {
       state.question.answer = g.question.answer;
       state.question.answerMedia = g.question.answerMedia || [];
     }
-    if (room.phase === 'cat') state.cat = { basePrice: g.question?.price };
+    if (room.phase === 'cat') state.cat = {
+      basePrice: g.question?.price,
+      selectedByPlayerId: g.question?.selectedByPlayerId ?? null,
+    };
     if (room.phase === 'auction' && g.auction) {
       state.auction = { minBet: g.auction.minBet, betCount: Object.keys(g.auction.bets).length,
         playersCount: [...room.players.values()].filter((p) => p.role !== 'spectator').length };
@@ -339,6 +342,10 @@ export class RoomManager {
   }
 
   _deserialize(data) {
+    const settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+    if (data.settings?.unlimitedAnswerTime === undefined) {
+      settings.unlimitedAnswerTime = settings.answerTimeSec === 0;
+    }
     const room = {
       id: data.id,
       hostToken: data.hostToken,
@@ -351,7 +358,7 @@ export class RoomManager {
       phase: data.snapshotVersion === 2 ? data.phase : ['buzz', 'answer'].includes(data.phase) ? 'question'
         : ['cat', 'auction'].includes(data.phase) ? 'board'
         : data.phase,
-      settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
+      settings,
       players: new Map(),
       game: null,
       history: Array.isArray(data.history) ? data.history : [],

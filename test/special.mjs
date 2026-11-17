@@ -32,7 +32,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function setupRoom(nicks) {
   const host = await connect();
   const { roomId, hostToken } = await ok(host, 'room:create', { packId: PACK });
-  await ok(host, 'session:resume', { roomId, hostToken });
+  const { state } = await ok(host, 'session:resume', { roomId, hostToken });
+  check('новая комната: безлимитный ответ, вопрос показывается игрокам',
+    state.settings.answerTimeSec === 0 && state.settings.unlimitedAnswerTime && state.settings.showQuestionToPlayers);
   const players = [];
   for (const nick of nicks) {
     const p = await connect();
@@ -40,18 +42,22 @@ async function setupRoom(nicks) {
     players.push({ socket: p, id: join.playerId, nick });
   }
   await ok(host, 'game:start', {});
-  return { host, roomId, players };
+  return { host, roomId, hostToken, players };
 }
 
 async function main() {
   // ================= КОТ В МЕШКЕ =================
   {
-    const { host, players } = await setupRoom(['Аня', 'Борис']);
+    const { host, roomId, hostToken, players } = await setupRoom(['Аня', 'Борис']);
     const [a, b] = players;
+    await ok(host, 'game:setPicker', { playerId: b.id });
     const catPending = wait(host, 'cat:pending');
-    await ok(host, 'board:select', { themeIdx: 0, qIdx: 1 });
-    await catPending;
-    check('кот: фаза cat, вопрос не показан', true);
+    await ok(b.socket, 'board:select', { themeIdx: 0, qIdx: 1 });
+    check('кот: событие содержит выбравшего игрока', (await catPending).selectedByPlayerId === b.id);
+    const { state } = await ok(host, 'session:resume', { roomId, hostToken });
+    check('кот: снимок сохраняет выбравшего игрока', state.game.cat.selectedByPlayerId === b.id);
+    const selfAssign = await call(host, 'cat:assign', { playerId: b.id, price: 200 });
+    check('кот: вопрос нельзя передать выбравшему игроку', !selfAssign.ok && /выбравшему/.test(selfAssign.error));
 
     let r = await call(host, 'buzz:press', {});
     check('кот: pressBuzz ведущим недоступен (не игрок)', r.ok === false);
