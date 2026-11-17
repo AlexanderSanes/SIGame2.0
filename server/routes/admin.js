@@ -1,16 +1,24 @@
 import { Router } from 'express';
 import { config } from '../../config.js';
 
-// Только прямое соединение с этого ПК. Не доверяем proxy-заголовкам.
-export function localAdmin(req, res, next) {
+export function adminAccess(req, res, next) {
   const address = req.socket.remoteAddress;
   const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address);
   const hostname = req.hostname;
   const localHost = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);
-  const forwarded = ['forwarded', 'x-forwarded-for', 'x-real-ip', 'x-forwarded-host'].some(h => req.get(h));
+  const forwarded = ['forwarded', 'x-forwarded-for', 'x-real-ip', 'x-forwarded-host',
+    'x-forwarded-proto', 'x-sigame-admin-proxy'].some(h => req.get(h));
   const origin = req.get('origin');
-  if (!local || !localHost || forwarded || (origin && origin !== `${req.protocol}://${req.get('host')}`)) {
-    return res.status(403).json({ ok: false, error: 'Управление доступно только напрямую через localhost на ПК сервера' });
+  const requestOrigin = `${req.protocol}://${req.get('host')}`;
+  const direct = local && localHost && !forwarded && (!origin || origin === requestOrigin);
+  const readOnly = req.method === 'GET' || req.method === 'HEAD';
+  // Nginx перезаписывает маркер и ставит его только для защищённых Basic Auth маршрутов.
+  const proxied = config.adminProxyEnabled && config.host === '127.0.0.1' && local
+    && req.get('x-sigame-admin-proxy') === '1' && req.protocol === 'https'
+    && requestOrigin === config.publicUrl
+    && (origin === requestOrigin || (!origin && readOnly));
+  if (!direct && !proxied) {
+    return res.status(403).json({ ok: false, error: 'Управление доступно через localhost или защищённый HTTPS-вход' });
   }
   res.set('Cache-Control', 'no-store');
   next();
@@ -18,7 +26,7 @@ export function localAdmin(req, res, next) {
 
 export function createAdminRouter(rooms, io) {
   const router = Router();
-  router.use('/api/admin', localAdmin);
+  router.use('/api/admin', adminAccess);
   router.get('/api/admin/rooms', (_req, res) => {
     const list = [...rooms.rooms.values()].map(room => ({
       id: room.id, title: room.pack.title, phase: room.phase,

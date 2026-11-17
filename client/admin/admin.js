@@ -15,7 +15,7 @@ async function load() {
   refresh.disabled = true;
   try {
     const data = await request('/api/admin/rooms');
-    document.querySelector('#policy').textContent = `Комнат: ${data.rooms.length}. Без подключений и активности удаляются через ${data.roomIdleMs / 3600000} ч. Проверка — раз в минуту по умолчанию. Управление доступно только на ПК сервера.`;
+    document.querySelector('#policy').textContent = `Комнат: ${data.rooms.length}. Без подключений и активности удаляются через ${data.roomIdleMs / 3600000} ч. Проверка — раз в минуту по умолчанию.`;
     list.replaceChildren();
     if (!data.rooms.length) list.append(element('p', 'Сохранённых комнат нет. Создайте игру на главной странице.'));
     for (const room of data.rooms) {

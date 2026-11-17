@@ -14,6 +14,7 @@ export const config = {
   rootDir: root,
   host: process.env.HOST || '0.0.0.0',
   publicUrl: process.env.PUBLIC_URL?.replace(/\/$/, '') || '',
+  adminProxyEnabled: process.env.ADMIN_PROXY_ENABLED === '1',
   snapshotIntervalMs: positiveMs('SNAPSHOT_INTERVAL_MS', 10000),
   cleanupIntervalMs: positiveMs('CLEANUP_INTERVAL_MS', 60000),
   roomIdleMs: positiveMs('ROOM_IDLE_MS', 2 * 60 * 60 * 1000),

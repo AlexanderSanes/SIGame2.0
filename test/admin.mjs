@@ -11,10 +11,12 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigame-admin-'));
 const probe = net.createServer().listen(0, '127.0.0.1'); await once(probe, 'listening');
 const port = probe.address().port; await new Promise(r => probe.close(r));
 const base = `http://localhost:${port}`;
+const publicUrl = 'https://sigame.example';
 let child;
 const sockets = [];
-async function start() {
-  child = fork('server/index.js', [], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dir }, silent: true });
+async function start(proxyEnabled = false) {
+  child = fork('server/index.js', [], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dir,
+    PUBLIC_URL: publicUrl, ADMIN_PROXY_ENABLED: proxyEnabled ? '1' : '0' }, silent: true });
   child.stdout.resume(); child.stderr.pipe(process.stderr);
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(`${base}/healthz`)).ok) return; } catch {}
@@ -24,12 +26,24 @@ async function start() {
 }
 async function stop() { const ended = once(child, 'exit'); child.send('shutdown'); await ended; }
 const call = (socket, event, payload = {}) => new Promise((resolve, reject) => socket.timeout(3000).emit(event, payload, (e, result) => e ? reject(e) : resolve(result)));
+const proxyHeaders = { Host: 'sigame.example', 'X-Forwarded-Proto': 'https', 'X-SIGame-Admin-Proxy': '1' };
+function proxyStatus(path, method, headers) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(base + path, { method, headers }, response => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
 try {
   await start();
   const socket = io(base, { transports: ['websocket'], reconnection: false }); sockets.push(socket); await once(socket, 'connect');
   const auth = await call(socket, 'room:create'); assert.equal(auth.ok, true);
   await call(socket, 'session:resume', { roomId: auth.roomId, hostToken: auth.hostToken });
   const url = `${base}/api/admin/rooms`;
+  assert.equal(await proxyStatus('/admin/', 'GET', proxyHeaders), 403);
   const list = await (await fetch(url)).json();
   assert.equal(list.rooms.length, 1); assert.equal(list.rooms[0].connections, 1);
   assert.equal(JSON.stringify(list).includes(auth.hostToken), false);
@@ -51,9 +65,19 @@ try {
   assert.equal((await call(socket, 'session:resume', { roomId: auth.roomId, hostToken: auth.hostToken })).ok, false);
   assert.equal((await fetch(`${url}/${auth.roomId}`, { method: 'DELETE' })).status, 404);
   await new Promise(r => setTimeout(r, 400));
-  socket.disconnect(); await stop(); await start();
+  socket.disconnect(); await stop(); await start(true);
   assert.equal((await (await fetch(url)).json()).rooms.length, 0);
   assert.equal((await fetch(`${base}/admin/`)).status, 200);
+  assert.equal(await proxyStatus('/admin/', 'GET', proxyHeaders), 200);
+  assert.equal(await proxyStatus('/api/admin/rooms', 'GET', proxyHeaders), 200);
+  assert.equal(await proxyStatus('/api/admin/rooms', 'GET', { ...proxyHeaders, 'X-SIGame-Admin-Proxy': '' }), 403);
+  assert.equal(await proxyStatus('/api/admin/rooms', 'GET', { ...proxyHeaders, 'X-Forwarded-Proto': 'http' }), 403);
+  assert.equal(await proxyStatus('/api/admin/rooms', 'GET', { ...proxyHeaders, Host: 'other.example' }), 403);
+  for (const [method, path] of [['POST', '/api/admin/rooms/XXXXX/access'], ['DELETE', '/api/admin/rooms/XXXXX']]) {
+    assert.equal(await proxyStatus(path, method, proxyHeaders), 403);
+    assert.equal(await proxyStatus(path, method, { ...proxyHeaders, Origin: 'https://other.example' }), 403);
+    assert.equal(await proxyStatus(path, method, { ...proxyHeaders, Origin: publicUrl }), 404);
+  }
   console.log('PASS: admin list, recovery, deletion, socket notification, restart persistence, origin/host/proxy protection');
 } finally {
   sockets.forEach(s => s.disconnect());
