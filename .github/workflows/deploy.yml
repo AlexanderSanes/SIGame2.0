@@ -1,0 +1,64 @@
+name: Развернуть
+run-name: Развернуть ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sigame-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/tests.yml
+
+  deploy:
+    name: Обновить сервер
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_PUBLIC_URL }}
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PUBLIC_URL: ${{ vars.DEPLOY_PUBLIC_URL }}
+      DEPLOY_SHA: ${{ github.sha }}
+    steps:
+      - name: Подготовить SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PUBLIC_URL"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/sigame_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Установить проверенную версию
+        run: |
+          set -euo pipefail
+          ssh -T -i ~/.ssh/sigame_deploy \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "$DEPLOY_USER@$DEPLOY_HOST" "deploy $DEPLOY_SHA"
+      - name: Проверить HTTPS и записать результат
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 "$DEPLOY_PUBLIC_URL/healthz" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin).get("ok") is True'
+          printf 'Развёрнут коммит `%s`\n\n[Открыть игру](%s)\n' \
+            "$DEPLOY_SHA" "$DEPLOY_PUBLIC_URL" >> "$GITHUB_STEP_SUMMARY"
+      - name: Удалить ключ с runner
+        if: always()
+        run: rm -f ~/.ssh/sigame_deploy
